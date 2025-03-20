@@ -1,0 +1,32 @@
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: weather_mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=password
+    restart: unless-stopped
+    networks:
+      - weather_network
+
+  weather_collector:
+    build: .
+    container_name: weather_collector
+    depends_on:
+      - mongodb
+    environment:
+      - MONGO_URI=mongodb://admin:password@mongodb:27017
+    restart: unless-stopped
+    networks:
+      - weather_network
+
+networks:
+  weather_network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
