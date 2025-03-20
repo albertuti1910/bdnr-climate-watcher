@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Meteorológico</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .card {
+            margin-bottom: 20px;
+        }
+        .weather-icon {
+            width: 50px;
+            height: 50px;
+        }
+        .alert-box {
+            border-left: 4px solid red;
+            padding-left: 10px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <h1 class="mb-4">Dashboard Meteorológico</h1>
+
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">Seleccionar Ciudad</h5>
+                            <div id="stats-container" class="text-muted small"></div>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <select id="city-selector" class="form-select mb-3">
+                            <option value="">Selecciona una ciudad</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Clima Actual</h5>
+                    </div>
+                    <div class="card-body" id="current-weather">
+                        <p class="text-center text-muted">Selecciona una ciudad para ver el clima actual</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Alertas Meteorológicas</h5>
+                    </div>
+                    <div class="card-body" id="alerts-container">
+                        <p class="text-center text-muted">Cargando alertas...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Historial de Temperatura (7 días)</h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="temp-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Pronóstico a 5 días</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="forecast-container" class="row">
+                            <p class="text-center text-muted">Selecciona una ciudad para ver el pronóstico</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Variables globales
+        let tempChart = null;
+
+        // Cargar ciudades disponibles
+        async function loadCities() {
+            try {
+                const response = await fetch('/api/cities');
+                const cities = await response.json();
+
+                const citySelector = document.getElementById('city-selector');
+                cities.forEach(city => {
+                    const option = document.createElement('option');
+                    option.value = city;
+                    option.textContent = city;
+                    citySelector.appendChild(option);
+                });
+
+                // Evento para cambiar de ciudad
+                citySelector.addEventListener('change', (e) => {
+                    const selectedCity = e.target.value;
+                    if (selectedCity) {
+                        loadCurrentWeather(selectedCity);
+                        loadHistoricalData(selectedCity);
+                        loadForecast(selectedCity);
+                    }
+                });
+            } catch (error) {
+                console.error('Error cargando ciudades:', error);
+            }
+        }
+
+        // Cargar clima actual
+        async function loadCurrentWeather(city) {
+            try {
+                const response = await fetch(`/api/current/${city}`);
+                const data = await response.json();
+
+                const container = document.getElementById('current-weather');
+                container.innerHTML = `
+                    <div class="d-flex align-items-center">
+                        <div>
+                            <img src="https://openweathermap.org/img/wn/${data.weather[0].icon}@2x.png" alt="${data.weather[0].description}" class="weather-icon">
+                        </div>
+                        <div class="ms-3">
+                            <h2>${data.main.temp.toFixed(1)}°C</h2>
+                            <p class="mb-0">${data.weather[0].description}</p>
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-6">
+                            <p><strong>Humedad:</strong> ${data.main.humidity}%</p>
+                            <p><strong>Presión:</strong> ${data.main.pressure} hPa</p>
+                        </div>
+                        <div class="col-6">
+                            <p><strong>Viento:</strong> ${data.wind.speed} m/s</p>
+                            <p><strong>Visibilidad:</strong> ${(data.visibility / 1000).toFixed(1)} km</p>
+                        </div>
+                    </div>
+                    <div class="text-muted small mt-2">
+                        Última actualización: ${new Date(data.collected_at.$date).toLocaleString()}
+                    </div>
+                `;
+            } catch (error) {
+                console.error('Error cargando clima actual:', error);
+            }
+        }
+
+        // Cargar datos históricos
+        async function loadHistoricalData(city) {
+            try {
+                const response = await fetch(`/api/historical/${city}?days=7`);
+                const data = await response.json();
+
+                const labels = data.map(d => d._id);
+                const avgTemps = data.map(d => d.avg_temp);
+                const minTemps = data.map(d => d.min_temp);
+                const maxTemps = data.map(d => d.max_temp);
+
+                const ctx = document.getElementById('temp-chart').getContext('2d');
+
+                // Destruir gráfico anterior si existe
+                if (tempChart) {
+                    tempChart.destroy();
+                }
+
+                tempChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Temp. Media',
+                                data: avgTemps,
+                                borderColor: 'rgba(54, 162, 235, 1)',
+                                backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                                fill: false,
+                                tension: 0.1
+                            },
+                            {
+                                label: 'Temp. Máxima',
+                                data: maxTemps,
+                                borderColor: 'rgba(255, 99, 132, 1)',
+                                backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                                fill: false,
+                                tension: 0.1
+                            },
+                            {
+                                label: 'Temp. Mínima',
+                                data: minTemps,
+                                borderColor: 'rgba(75, 192, 192, 1)',
+                                backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                                fill: false,
+                                tension: 0.1
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: {
+                                beginAtZero: false,
+                                title: {
+                                    display: true,
+                                    text: 'Temperatura (°C)'
+                                }
+                            }
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error('Error cargando datos históricos:', error);
+            }
+        }
+
+        // Cargar pronóstico
+        async function loadForecast(city) {
+            try {
+                const response = await fetch(`/api/forecast/${city}`);
+                const data = await response.json();
+
+                const container = document.getElementById('forecast-container');
+
+                // Mostrar solo un pronóstico por día (el de medio día)
+                const dailyForecasts = {};
+
+                data.forecast.forEach(item => {
+                    const date = item.datetime.split(' ')[0];
+                    const hour = parseInt(item.datetime.split(' ')[1].split(':')[0]);
+
+                    // Priorizar pronósticos cercanos al mediodía
+                    if (!dailyForecasts[date] || Math.abs(hour - 12) < Math.abs(parseInt(dailyForecasts[date].datetime.split(' ')[1].split(':')[0]) - 12)) {
+                        dailyForecasts[date] = item;
+                    }
+                });
+
+                // Convertir a array y ordenar por fecha
+                const forecasts = Object.values(dailyForecasts)
+                    .sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
+
+                // Crear HTML para cada día
+                let forecastHTML = '<div class="row">';
+                forecasts.forEach(item => {
+                    const date = new Date(item.datetime);
+                    const dayName = date.toLocaleDateString('es-ES', { weekday: 'short' });
+                    const formattedDate = date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+
+                    forecastHTML += `
+                        <div class="col">
+                            <div class="card text-center">
+                                <div class="card-body p-2">
+                                    <h6>${dayName}</h6>
+                                    <p class="small text-muted">${formattedDate}</p>
+                                    <img src="https://openweathermap.org/img/wn/${item.icon}@2x.png" alt="${item.description}">
+                                    <h5>${item.temp.toFixed(1)}°C</h5>
+                                    <p class="small mb-1">${item.description}</p>
+                                    <div class="small text-muted">
+                                        Humedad: ${item.humidity}%<br>
+                                        Viento: ${item.wind_speed} m/s
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                forecastHTML += '</div>';
+
+                container.innerHTML = forecastHTML;
+            } catch (error) {
+                console.error('Error cargando pronóstico:', error);
+            }
+        }
+
+        // Cargar alertas
+        async function loadAlerts() {
+            try {
+                const response = await fetch('/api/alerts');
+                const alerts = await response.json();
+
+                const container = document.getElementById('alerts-container');
+
+                if (alerts.length === 0) {
+                    container.innerHTML = '<p class="text-center text-success">No hay alertas activas</p>';
+                } else {
+                    let alertsHTML = '';
+                    alerts.forEach(alert => {
+                        alertsHTML += `
+                            <div class="alert-box p-2 mb-2">
+                                <h6>${alert.city}, ${alert.country}: ${alert.alert_type}</h6>
+                                <div class="small">
+                                    <strong>Temperatura:</strong> ${alert.temp.toFixed(1)}°C |
+                                    <strong>Viento:</strong> ${alert.wind_speed} m/s |
+                                    <strong>Humedad:</strong> ${alert.humidity}%
+                                </div>
+                                <div class="text-muted small">
+                                    Actualizado: ${new Date(alert.collected_at.$date).toLocaleString()}
+                                </div>
+                            </div>
+                        `;
+                    });
+                    container.innerHTML = alertsHTML;
+                }
+            } catch (error) {
+                console.error('Error cargando alertas:', error);
+            }
+        }
+
+        // Cargar estadísticas del sistema
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/stats');
+                const stats = await response.json();
+
+                const container = document.getElementById('stats-container');
+                container.innerHTML = `
+                    Total registros: ${stats.total_records.toLocaleString()} |
+                    Ciudades: ${stats.cities_count} |
+                    Última actualización: ${stats.last_update}
+                `;
+            } catch (error) {
+                console.error('Error cargando estadísticas:', error);
+            }
+        }
+
+        // Inicializar la aplicación
+        document.addEventListener('DOMContentLoaded', () => {
+            loadCities();
+            loadAlerts();
+            loadStats();
+
+            // Recargar alertas cada 5 minutos
+            setInterval(loadAlerts, 5 * 60 * 1000);
+            // Recargar estadísticas cada 10 minutos
+            setInterval(loadStats, 10 * 60 * 1000);
+        });
+    </script>
+</body>
+</html>

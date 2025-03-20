@@ -1,9 +1,49 @@
-# Ignorar entorno virtual
-#venv/
-#.venv/
-# Ignorar archivo de variables de entorno
+# Archivo de variables de entorno
 .env
-# Ignorar cachés de Python
+
+# Directorios de datos y análisis
+/data/
+/analysis/
+
+# Archivos generados por Python
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Archivos específicos de IDE/editores
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Archivos de sistema operativo
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

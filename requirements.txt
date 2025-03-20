@@ -1,4 +1,22 @@
-requests
+# Dependencias básicas
 pymongo
+requests
 python-dotenv
-tabulate
+
+# Dependencias para la API web y dashboard
+flask
+Werkzeug
+Jinja2
+
+# Dependencias para el Bot de Telegram
+python-telegram-bot
+
+# Dependencias para el análisis de datos
+pandas
+numpy
+matplotlib
+seaborn
+scipy
+
+# Dependencias para manejo de JSON y serialización
+bson

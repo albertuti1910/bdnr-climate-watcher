@@ -1,32 +1,94 @@
 services:
   mongodb:
     image: mongo:latest
-    container_name: weather_mongodb
+    container_name: mongodb
+    restart: always
     ports:
-      - "27017:27017"
+      - "${MONGO_EXTERNAL_PORT:-27017}:27017"
     volumes:
-      - mongodb_data:/data/db
+      - mongo_data:/data/db
     environment:
-      - MONGO_INITDB_ROOT_USERNAME=admin
-      - MONGO_INITDB_ROOT_PASSWORD=password
-    restart: unless-stopped
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME:-admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD:-password}
     networks:
       - weather_network
 
   weather_collector:
-    build: .
+    build:
+      context: ./weather_collector
     container_name: weather_collector
+    restart: always
+    environment:
+      - OPENWEATHER_API_KEY=${OPENWEATHER_API_KEY}
+      - MONGO_URI=mongodb://${MONGO_INITDB_ROOT_USERNAME:-admin}:${MONGO_INITDB_ROOT_PASSWORD:-password}@mongodb:27017/
+      - COLLECTION_INTERVAL=${COLLECTION_INTERVAL:-3600}
+    volumes:
+      - ./config.py:/app/config.py
     depends_on:
       - mongodb
-    environment:
-      - MONGO_URI=mongodb://admin:password@mongodb:27017
-    restart: unless-stopped
     networks:
       - weather_network
+
+  # Opcional: Servicio API/Web para visualizar datos
+  weather_api:
+    build:
+      context: ./weather_api
+    container_name: weather_api
+    restart: always
+    ports:
+      - "${API_EXTERNAL_PORT:-5000}:5000"
+    environment:
+      - MONGO_URI=mongodb://${MONGO_INITDB_ROOT_USERNAME:-admin}:${MONGO_INITDB_ROOT_PASSWORD:-password}@mongodb:27017/
+      - DEBUG_MODE=${DEBUG_MODE:-false}
+    volumes:
+      - ./config.py:/app/config.py
+    depends_on:
+      - mongodb
+    networks:
+      - weather_network
+
+  # Servicio de Telegram Bot (condicional)
+  telegram_bot:
+    build:
+      context: ./telegram_bot
+    container_name: telegram_bot
+    restart: always
+    environment:
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - MONGO_URI=mongodb://${MONGO_INITDB_ROOT_USERNAME:-admin}:${MONGO_INITDB_ROOT_PASSWORD:-password}@mongodb:27017/
+      - CHECK_INTERVAL=${CHECK_INTERVAL:-3600}
+      - TELEGRAM_ADMIN_ID=${TELEGRAM_ADMIN_ID}
+    volumes:
+      - ./config.py:/app/config.py
+    depends_on:
+      - mongodb
+    networks:
+      - weather_network
+
+  # Servicio Data Analyzer (condicional)
+  data_analyzer:
+    build:
+      context: ./data_analyzer
+    container_name: data_analyzer
+    restart: on-failure
+    environment:
+      - MONGO_URI=mongodb://${MONGO_INITDB_ROOT_USERNAME:-admin}:${MONGO_INITDB_ROOT_PASSWORD:-password}@mongodb:27017/
+      - OUTPUT_DIR=${OUTPUT_DIR:-/app/data}
+      - ANALYSIS_INTERVAL=${ANALYSIS_INTERVAL:-86400}
+    volumes:
+      - ${ANALYSIS_DIR:-./analysis}:/app/data
+    depends_on:
+      - mongodb
+      - weather_collector
+    networks:
+      - weather_network
+    command: bash -c "while :; do python app.py && sleep ${ANALYSIS_INTERVAL:-86400}; done"
+
+volumes:
+  mongo_data:
+    name: ${MONGO_VOLUME_NAME:-mongo_weather_data}
 
 networks:
   weather_network:
     driver: bridge
-
-volumes:
-  mongodb_data:
+    name: ${NETWORK_NAME:-weather_network}
