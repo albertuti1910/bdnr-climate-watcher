@@ -1,5 +1,4 @@
 from flask import Flask, jsonify, render_template, request
-import os
 import pymongo
 from datetime import datetime, timedelta
 from bson import json_util
