@@ -7,11 +7,13 @@ services:
       - "${MONGO_EXTERNAL_PORT:-27017}:27017"
     volumes:
       - mongo_data:/data/db
+      - mongo_config:/data/configdb
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME:-admin}
       - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD:-password}
     networks:
       - weather_network
+    volumes_from: []
 
   weather_collector:
     build:
@@ -29,7 +31,7 @@ services:
     networks:
       - weather_network
 
-  # Opcional: Servicio API/Web para visualizar datos
+  # Servicio API/Web para visualizar datos
   weather_api:
     build:
       context: ./weather_api
@@ -47,7 +49,7 @@ services:
     networks:
       - weather_network
 
-  # Servicio de Telegram Bot (condicional)
+  # Servicio de Telegram Bot
   telegram_bot:
     build:
       context: ./telegram_bot
@@ -65,7 +67,7 @@ services:
     networks:
       - weather_network
 
-  # Servicio Data Analyzer (condicional)
+  # Servicio Data Analyzer
   data_analyzer:
     build:
       context: ./data_analyzer
@@ -76,17 +78,21 @@ services:
       - OUTPUT_DIR=${OUTPUT_DIR:-/app/data}
       - ANALYSIS_INTERVAL=${ANALYSIS_INTERVAL:-86400}
     volumes:
-      - ${ANALYSIS_DIR:-./analysis}:/app/data
+      - analysis_data:/app/data
     depends_on:
       - mongodb
       - weather_collector
     networks:
       - weather_network
-    command: bash -c "while :; do python app.py && sleep ${ANALYSIS_INTERVAL:-86400}; done"
+    command: bash -c "while :; do python analyzer_main.py && sleep ${ANALYSIS_INTERVAL:-86400}; done"
 
 volumes:
   mongo_data:
     name: ${MONGO_VOLUME_NAME:-mongo_weather_data}
+  mongo_config:
+    name: ${MONGO_CONFIG_VOLUME_NAME:-mongo_weather_config}
+  analysis_data:
+    name: ${ANALYSIS_VOLUME_NAME:-analysis_weather_data}
 
 networks:
   weather_network:
