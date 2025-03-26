@@ -18,7 +18,4 @@ RUN mkdir -p /app/data
 
 COPY . .
 
-# Volumen para persistir los resultados
-VOLUME ["/app/data"]
-
 CMD ["python", "analyzer_main.py"]
