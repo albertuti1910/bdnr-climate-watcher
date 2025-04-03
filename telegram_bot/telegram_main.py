@@ -1,12 +1,12 @@
 import os
-import time
 import logging
-import json
 from datetime import datetime
 import pymongo
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 from dotenv import load_dotenv
+
+from config import THRESHOLDS, MONGO_CONFIG
 
 load_dotenv()
 
@@ -26,25 +26,19 @@ logger = logging.getLogger(__name__)
 client = pymongo.MongoClient(MONGO_URI)
 db = client.weather_db
 
-# Diccionario para almacenar preferencias de usuarios
-user_prefs = {}
+# Colección para almacenar preferencias de usuarios
+user_prefs_collection = db['user_preferences']
 
-# Umbral para alertas
-THRESHOLDS = {
-    'temp_high': 35.0,  # Temperatura alta (°C)
-    'temp_low': 0.0,    # Temperatura baja (°C)
-    'wind': 20.0,       # Viento fuerte (m/s)
-    'humidity': 95.0,   # Humedad extrema (%)
-    'rain': 10.0        # Lluvia intensa (mm en 3h)
-}
+# Crear índice para búsqueda eficiente por user_id
+user_prefs_collection.create_index([("user_id", pymongo.ASCENDING)], unique=True)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Comando /start para iniciar el bot"""
-    user_id = update.effective_user.id
-
-    # Registrar usuario en preferencias si no existe
-    if user_id not in user_prefs:
-        user_prefs[user_id] = {
+def load_user_preferences(user_id):
+    """Carga las preferencias del usuario desde la base de datos"""
+    pref = user_prefs_collection.find_one({"user_id": user_id})
+    if not pref:
+        # Si no existen, crear preferencias por defecto
+        pref = {
+            'user_id': user_id,
             'cities': [],
             'alerts': {
                 'temp_high': True,
@@ -54,6 +48,28 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 'rain': True
             }
         }
+        # Guardar las preferencias por defecto en la base de datos
+        user_prefs_collection.insert_one(pref)
+
+    return pref
+
+def save_user_preferences(user_id, preferences):
+    """Guarda las preferencias del usuario en la base de datos"""
+    # Asegurarse de que user_id está en las preferencias
+    preferences['user_id'] = user_id
+
+    user_prefs_collection.update_one(
+        {"user_id": user_id},
+        {"$set": preferences},
+        upsert=True
+    )
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Comando /start para iniciar el bot"""
+    user_id = update.effective_user.id
+
+    # Cargar preferencias (se crearán si no existen)
+    prefs = load_user_preferences(user_id)
 
     await update.message.reply_text(
         f"¡Hola {update.effective_user.first_name}! Soy el bot de alertas meteorológicas.\n\n"
@@ -70,7 +86,7 @@ async def add_city(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
 
     # Obtener la lista de ciudades disponibles
-    cities = db.current_weather.distinct("name")
+    cities = db[MONGO_CONFIG['collections']['hourly_forecast']].distinct("city.name")
 
     # Crear un teclado en línea con botones para cada ciudad
     keyboard = []
@@ -89,8 +105,11 @@ async def my_cities(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Comando para mostrar y gestionar las ciudades monitorizadas"""
     user_id = update.effective_user.id
 
+    # Cargar preferencias
+    prefs = load_user_preferences(user_id)
+
     # Comprobar si el usuario tiene ciudades registradas
-    if user_id not in user_prefs or not user_prefs[user_id]['cities']:
+    if not prefs['cities']:
         await update.message.reply_text(
             "No tienes ciudades para monitorizar. Usa /addcity para añadir una."
         )
@@ -98,13 +117,13 @@ async def my_cities(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # Crear un teclado en línea con botones para cada ciudad (para eliminar)
     keyboard = []
-    for city in user_prefs[user_id]['cities']:
+    for city in prefs['cities']:
         keyboard.append([InlineKeyboardButton(f"❌ {city}", callback_data=f"remove_{city}")])
 
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
         "Tus ciudades monitorizadas:\n\n" +
-        "\n".join([f"• {city}" for city in user_prefs[user_id]['cities']]) +
+        "\n".join([f"• {city}" for city in prefs['cities']]) +
         "\n\nPuedes eliminar una ciudad pulsando el botón correspondiente:",
         reply_markup=reply_markup
     )
@@ -113,22 +132,12 @@ async def configure_alerts(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Comando para configurar tipos de alertas"""
     user_id = update.effective_user.id
 
-    # Asegurarse de que el usuario tiene preferencias
-    if user_id not in user_prefs:
-        user_prefs[user_id] = {
-            'cities': [],
-            'alerts': {
-                'temp_high': True,
-                'temp_low': True,
-                'wind': True,
-                'humidity': True,
-                'rain': True
-            }
-        }
+    # Cargar preferencias
+    prefs = load_user_preferences(user_id)
 
     # Crear teclado para configurar alertas
     keyboard = []
-    alerts = user_prefs[user_id]['alerts']
+    alerts = prefs['alerts']
 
     alert_names = {
         'temp_high': 'Temperatura alta',
@@ -162,8 +171,11 @@ async def get_weather(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     """Comando para obtener el clima actual de las ciudades monitorizadas"""
     user_id = update.effective_user.id
 
+    # Cargar preferencias
+    prefs = load_user_preferences(user_id)
+
     # Comprobar si el usuario tiene ciudades registradas
-    if user_id not in user_prefs or not user_prefs[user_id]['cities']:
+    if not prefs['cities']:
         await update.message.reply_text(
             "No tienes ciudades para monitorizar. Usa /addcity para añadir una."
         )
@@ -171,24 +183,31 @@ async def get_weather(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     response = "🌤️ Clima actual:\n\n"
 
-    for city in user_prefs[user_id]['cities']:
+    for city in prefs['cities']:
         # Obtener datos más recientes para la ciudad
-        weather_data = db.current_weather.find({"name": city}).sort("collected_at", -1).limit(1)
+        weather_data = db[MONGO_CONFIG['collections']['hourly_forecast']].find(
+            {"city.name": city}
+        ).sort("collected_at", -1).limit(1)
         weather = list(weather_data)
 
-        if weather:
-            w = weather[0]
-            temp = w['main']['temp']
-            description = w['weather'][0]['description']
-            humidity = w['main']['humidity']
-            wind_speed = w['wind']['speed']
-            pressure = w['main']['pressure']
+        if weather and 'list' in weather[0]:
+            # Get the most recent forecast (first item in the list)
+            forecast = weather[0]['list'][0] if weather[0]['list'] else None
 
-            response += f"*{city}*\n"
-            response += f"🌡️ {temp:.1f}°C - {description}\n"
-            response += f"💧 Humedad: {humidity}%\n"
-            response += f"🌬️ Viento: {wind_speed} m/s\n"
-            response += f"⏲️ Presión: {pressure} hPa\n\n"
+            if forecast:
+                temp = forecast['main']['temp']
+                description = forecast['weather'][0]['description']
+                humidity = forecast['main']['humidity']
+                wind_speed = forecast['wind']['speed']
+                pressure = forecast['main']['pressure']
+
+                response += f"*{city}*\n"
+                response += f"🌡️ {temp:.1f}°C - {description}\n"
+                response += f"💧 Humedad: {humidity}%\n"
+                response += f"🌬️ Viento: {wind_speed} m/s\n"
+                response += f"⏲️ Presión: {pressure} hPa\n\n"
+            else:
+                response += f"*{city}*: Datos no disponibles\n\n"
         else:
             response += f"*{city}*: Datos no disponibles\n\n"
 
@@ -198,8 +217,11 @@ async def forecast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Comando para obtener el pronóstico de 5 días para una ciudad"""
     user_id = update.effective_user.id
 
+    # Cargar preferencias
+    prefs = load_user_preferences(user_id)
+
     # Comprobar si el usuario tiene ciudades registradas
-    if user_id not in user_prefs or not user_prefs[user_id]['cities']:
+    if not prefs['cities']:
         await update.message.reply_text(
             "No tienes ciudades para monitorizar. Usa /addcity para añadir una."
         )
@@ -207,7 +229,7 @@ async def forecast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # Crear un teclado en línea con botones para cada ciudad
     keyboard = []
-    for city in user_prefs[user_id]['cities']:
+    for city in prefs['cities']:
         keyboard.append([InlineKeyboardButton(city, callback_data=f"forecast_{city}")])
 
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -228,22 +250,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if data.startswith("add_"):
         city = data[4:]
 
-        # Inicializar preferencias si no existen
-        if user_id not in user_prefs:
-            user_prefs[user_id] = {
-                'cities': [],
-                'alerts': {
-                    'temp_high': True,
-                    'temp_low': True,
-                    'wind': True,
-                    'humidity': True,
-                    'rain': True
-                }
-            }
+        # Cargar preferencias
+        prefs = load_user_preferences(user_id)
 
         # Añadir la ciudad si no está ya en la lista
-        if city not in user_prefs[user_id]['cities']:
-            user_prefs[user_id]['cities'].append(city)
+        if city not in prefs['cities']:
+            prefs['cities'].append(city)
+            # Guardar las preferencias actualizadas
+            save_user_preferences(user_id, prefs)
             await query.edit_message_text(f"✅ {city} añadida a tu lista de monitorización.")
         else:
             await query.edit_message_text(f"⚠️ {city} ya está en tu lista de monitorización.")
@@ -252,8 +266,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     elif data.startswith("remove_"):
         city = data[7:]
 
-        if user_id in user_prefs and city in user_prefs[user_id]['cities']:
-            user_prefs[user_id]['cities'].remove(city)
+        # Cargar preferencias
+        prefs = load_user_preferences(user_id)
+
+        if city in prefs['cities']:
+            prefs['cities'].remove(city)
+            # Guardar las preferencias actualizadas
+            save_user_preferences(user_id, prefs)
             await query.edit_message_text(f"❌ {city} eliminada de tu lista de monitorización.")
         else:
             await query.edit_message_text("⚠️ Error al eliminar la ciudad.")
@@ -262,9 +281,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     elif data.startswith("toggle_"):
         alert_type = data[7:]
 
-        if user_id in user_prefs and alert_type in user_prefs[user_id]['alerts']:
+        # Cargar preferencias
+        prefs = load_user_preferences(user_id)
+
+        if alert_type in prefs['alerts']:
             # Cambiar estado
-            user_prefs[user_id]['alerts'][alert_type] = not user_prefs[user_id]['alerts'][alert_type]
+            prefs['alerts'][alert_type] = not prefs['alerts'][alert_type]
+            # Guardar las preferencias actualizadas
+            save_user_preferences(user_id, prefs)
 
             # Actualizar mensaje con nueva configuración
             await configure_alerts(update, context)
@@ -274,7 +298,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         city = data[9:]
 
         # Obtener pronóstico más reciente
-        forecast_data = db.forecasts.find({"city.name": city}).sort("collected_at", -1).limit(1)
+        forecast_data = db[MONGO_CONFIG['collections']['hourly_forecast']].find(
+            {"city.name": city}
+        ).sort("collected_at", -1).limit(1)
         forecast = list(forecast_data)
 
         if not forecast:
@@ -285,108 +311,132 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         daily_forecast = {}
 
         for item in forecast[0]['list']:
-            date = item['dt_txt'].split(' ')[0]
-            hour = int(item['dt_txt'].split(' ')[1].split(':')[0])
+            forecast_date = datetime.fromtimestamp(item['dt'])
+            date_str = forecast_date.strftime('%Y-%m-%d')
+            hour = forecast_date.hour
 
             # Priorizar pronósticos cercanos al mediodía
-            if date not in daily_forecast or abs(hour - 12) < abs(int(daily_forecast[date]['dt_txt'].split(' ')[1].split(':')[0]) - 12):
-                daily_forecast[date] = item
+            if date_str not in daily_forecast or abs(hour - 12) < abs(daily_forecast[date_str]['hour'] - 12):
+                item['hour'] = hour
+                daily_forecast[date_str] = item
 
         # Ordenar por fecha
-        sorted_forecast = sorted(daily_forecast.values(), key=lambda x: x['dt_txt'])
+        sorted_forecast = sorted(daily_forecast.values(), key=lambda x: x['dt'])
 
         # Generar respuesta
         response = f"🔮 Pronóstico para *{city}*:\n\n"
 
         for item in sorted_forecast[:5]:  # Limitar a 5 días
-            date = datetime.strptime(item['dt_txt'].split(' ')[0], '%Y-%m-%d')
+            date = datetime.fromtimestamp(item['dt'])
             day = date.strftime('%A')  # Nombre del día
+
+            # Traducir nombres de días al español
+            days_es = {
+                'Monday': 'Lunes',
+                'Tuesday': 'Martes',
+                'Wednesday': 'Miércoles',
+                'Thursday': 'Jueves',
+                'Friday': 'Viernes',
+                'Saturday': 'Sábado',
+                'Sunday': 'Domingo'
+            }
+            day_es = days_es.get(day, day)
 
             temp = item['main']['temp']
             weather = item['weather'][0]['description']
 
-            response += f"*{day}*: {temp:.1f}°C, {weather}\n"
+            response += f"*{day_es}*: {temp:.1f}°C, {weather}\n"
 
         await query.edit_message_text(response, parse_mode='Markdown')
 
-async def check_and_send_alerts() -> None:
+async def check_and_send_alerts(context: ContextTypes.DEFAULT_TYPE = None) -> None:
     """Comprueba condiciones y envía alertas a usuarios"""
     logger.info("Comprobando condiciones para alertas...")
+
+    # Obtener todos los usuarios con sus preferencias
+    all_users = list(user_prefs_collection.find())
 
     # Criterios para alertas
     pipeline = [
         # Obtener datos más recientes para cada ciudad
         {"$sort": {"collected_at": -1}},
         {"$group": {
-            "_id": "$name",
+            "_id": "$city.name",
             "latest": {"$first": "$$ROOT"}
         }},
         {"$replaceRoot": {"newRoot": "$latest"}},
-        # Proyectar solo los campos necesarios
-        {"$project": {
-            "_id": 0,
-            "city": "$name",
-            "country": "$sys.country",
-            "temp": "$main.temp",
-            "wind_speed": "$wind.speed",
-            "humidity": "$main.humidity",
-            "rain": {
-                "$cond": [
-                    {"$ifNull": ["$rain.3h", False]},
-                    "$rain.3h",
-                    0
-                ]
-            },
-            "collected_at": 1
-        }}
     ]
 
-    weather_data = list(db.current_weather.aggregate(pipeline))
+    weather_data = list(db[MONGO_CONFIG['collections']['hourly_forecast']].aggregate(pipeline))
+
+    # Procesar los datos del tiempo para obtener la predicción más reciente
+    processed_weather = {}
+
+    for city_data in weather_data:
+        if 'list' in city_data and city_data['list']:
+            city_name = city_data['city']['name']
+            latest_forecast = city_data['list'][0]  # Usar el pronóstico más reciente
+
+            processed_weather[city_name] = {
+                'city': city_name,
+                'country': city_data['city'].get('country', ''),
+                'temp': latest_forecast['main']['temp'],
+                'wind_speed': latest_forecast['wind']['speed'],
+                'humidity': latest_forecast['main']['humidity'],
+                'rain': latest_forecast.get('rain', {}).get('3h', 0),
+                'weather_id': latest_forecast['weather'][0]['id'],
+                'weather_main': latest_forecast['weather'][0]['main'],
+                'weather_description': latest_forecast['weather'][0]['description'],
+                'collected_at': city_data['collected_at']
+            }
 
     # Para cada usuario, comprobar sus ciudades
-    for user_id, prefs in user_prefs.items():
-        cities = prefs['cities']
-        alerts = prefs['alerts']
+    for user in all_users:
+        user_id = user['user_id']
+        cities = user.get('cities', [])
+        alerts = user.get('alerts', {})
 
         if not cities:
             continue
 
         user_alerts = []
 
-        for data in weather_data:
-            if data['city'] not in cities:
+        for city_name in cities:
+            if city_name not in processed_weather:
                 continue
 
+            data = processed_weather[city_name]
+
             # Comprobar cada tipo de alerta según preferencias
-            if alerts.get('temp_high') and data['temp'] > THRESHOLDS['temp_high']:
+            if alerts.get('temp_high', True) and data['temp'] > THRESHOLDS['temp_high']:
                 user_alerts.append({
                     'city': data['city'],
                     'type': 'Temperatura alta',
                     'value': f"{data['temp']:.1f}°C"
                 })
 
-            if alerts.get('temp_low') and data['temp'] < THRESHOLDS['temp_low']:
+            if alerts.get('temp_low', True) and data['temp'] < THRESHOLDS['temp_low']:
                 user_alerts.append({
                     'city': data['city'],
                     'type': 'Temperatura baja',
                     'value': f"{data['temp']:.1f}°C"
                 })
 
-            if alerts.get('wind') and data['wind_speed'] > THRESHOLDS['wind']:
+            if alerts.get('wind', True) and data['wind_speed'] > THRESHOLDS['wind']:
                 user_alerts.append({
                     'city': data['city'],
                     'type': 'Viento fuerte',
                     'value': f"{data['wind_speed']} m/s"
                 })
 
-            if alerts.get('humidity') and data['humidity'] > THRESHOLDS['humidity']:
+            if alerts.get('humidity', True) and data['humidity'] > THRESHOLDS['humidity']:
                 user_alerts.append({
                     'city': data['city'],
                     'type': 'Humedad extrema',
                     'value': f"{data['humidity']}%"
                 })
 
-            if alerts.get('rain') and data.get('rain', 0) > THRESHOLDS['rain']:
+            if alerts.get('rain', True) and data.get('rain', 0) > THRESHOLDS['rain']:
                 user_alerts.append({
                     'city': data['city'],
                     'type': 'Lluvia intensa',
@@ -394,22 +444,25 @@ async def check_and_send_alerts() -> None:
                 })
 
         # Enviar alertas al usuario si hay alguna
-        if user_alerts:
+        if user_alerts and context:
             message = "⚠️ *ALERTAS METEOROLÓGICAS* ⚠️\n\n"
 
             for alert in user_alerts:
                 message += f"*{alert['city']}*: {alert['type']} - {alert['value']}\n"
 
-            # Aquí enviaríamos el mensaje al usuario
-            # Esta parte depende de cómo manejes el envío de mensajes fuera de un comando
-            # Para una implementación completa, necesitarías usar application.bot.send_message
-            # await application.bot.send_message(chat_id=user_id, text=message, parse_mode='Markdown')
-
-            logger.info(f"Alerta enviada a usuario {user_id}: {len(user_alerts)} condiciones")
+            try:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=message,
+                    parse_mode='Markdown'
+                )
+                logger.info(f"Alerta enviada a usuario {user_id}: {len(user_alerts)} condiciones")
+            except Exception as e:
+                logger.error(f"Error enviando alerta a usuario {user_id}: {e}")
 
 async def periodic_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Trabajo periódico para comprobar alertas"""
-    await check_and_send_alerts()
+    await check_and_send_alerts(context)
 
 def main():
     """Función principal para ejecutar el bot"""
