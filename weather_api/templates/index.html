@@ -275,13 +275,17 @@
                     return;
                 }
 
+                console.log(`Recibidos ${data.forecast.length} pronósticos horarios`);
+
                 let hourlyHTML = '';
 
                 // Crear HTML para cada hora
-                data.forecast.forEach(item => {
+                data.forecast.forEach((item, index) => {
                     const date = new Date(item.datetime);
                     const hour = date.getHours().toString().padStart(2, '0') + ':00';
                     const dayMonth = date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+
+                    console.log(`Pronóstico ${index+1}: ${hour} del ${dayMonth} - ${item.temp.toFixed(1)}°C`);
 
                     hourlyHTML += `
                         <div class="hourly-item">
@@ -417,22 +421,30 @@
                     return;
                 }
 
+                console.log(`Recibidos ${data.forecast.length} pronósticos para agrupar por días`);
+
                 // Agrupar pronósticos por día
                 const dailyForecasts = {};
 
                 data.forecast.forEach(item => {
+                    // Extraer solo la fecha (sin la hora)
                     const date = item.datetime.split(' ')[0];
                     const hour = parseInt(item.datetime.split(' ')[1].split(':')[0]);
+
+                    console.log(`Procesando: ${date} ${hour}:00 - ${item.temp.toFixed(1)}°C`);
 
                     // Priorizar pronósticos cercanos al mediodía (12:00)
                     if (!dailyForecasts[date] || Math.abs(hour - 12) < Math.abs(parseInt(dailyForecasts[date].datetime.split(' ')[1].split(':')[0]) - 12)) {
                         dailyForecasts[date] = item;
+                        console.log(`  ✓ Seleccionado para ${date}`);
                     }
                 });
 
                 // Convertir a array y ordenar por fecha
                 const forecasts = Object.values(dailyForecasts)
                     .sort((a, b) => new Date(a.datetime) - new Date(b.datetime));
+
+                console.log(`Agrupados en ${forecasts.length} días únicos`);
 
                 // Crear HTML para cada día
                 let forecastHTML = '<div class="row">';
