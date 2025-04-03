@@ -1,3 +1,4 @@
 python-telegram-bot[job-queue]==20.6
 pymongo==4.5.0
 python-dotenv==1.0.0
+backoff==2.2.1
