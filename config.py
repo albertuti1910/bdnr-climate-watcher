@@ -16,8 +16,8 @@ load_dotenv(dotenv_path)
 # Formato: {"name": "NOMBRE_CIUDAD", "lat": LATITUD, "lon": LONGITUD}
 CITIES = [
     {"name": "Las Palmas", "lat": 28.151286, "lon": -15.427340},
-    {"name": "Santa Cruz de Tenerife", "lat": 28.463163, "lon": -16.251866},
-    {"name": "Madrid", "lat": 40.416775, "lon": -3.703790},
+    #{"name": "Santa Cruz de Tenerife", "lat": 28.463163, "lon": -16.251866},
+    #{"name": "Madrid", "lat": 40.416775, "lon": -3.703790},
 ]
 
 # Umbrales para alertas meteorológicas
@@ -31,7 +31,7 @@ THRESHOLDS = {
 
 # Intervalos de tiempo (en segundos)
 INTERVALS = {
-    'collection': int(os.getenv('COLLECTION_INTERVAL', '60')),  # Corregido: valor por defecto como string
+    'collection': int(os.getenv('COLLECTION_INTERVAL', '60')),
 }
 
 # Configuración de MongoDB
@@ -47,11 +47,13 @@ MONGO_CONFIG = {
 API_CONFIG = {
     'port': int(os.getenv('API_PORT', '5000')),
     'debug': os.getenv('API_DEBUG', 'false').lower() == 'true',
-    'host': os.getenv('API_HOST', '0.0.0.0')
+    'host': os.getenv('API_HOST', '0.0.0.0'),
+    'rate_limit': os.getenv('API_RATE_LIMIT', '100/minute'),
+    'cache_timeout': int(os.getenv('CACHE_TIMEOUT', '300')),  # 5 minutes default
 }
 
 # API Key de OpenWeatherMap
-OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY', '43bea64bb949aaee8c54b8442ec9aff0')
+OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
 
 # Función para verificar configuración crítica
 def verify_config():

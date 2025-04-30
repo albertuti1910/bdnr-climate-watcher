@@ -26,6 +26,7 @@ services:
       - COLLECTION_INTERVAL=${COLLECTION_INTERVAL:-3600}
     volumes:
       - ./config.py:/app/config.py
+      - ./.env:/app/.env
     depends_on:
       - mongodb
     networks:
@@ -44,6 +45,7 @@ services:
       - DEBUG_MODE=${DEBUG_MODE:-false}
     volumes:
       - ./config.py:/app/config.py
+      - ./.env:/app/.env
     depends_on:
       - mongodb
     networks:
@@ -62,6 +64,7 @@ services:
       - TELEGRAM_ADMIN_ID=${TELEGRAM_ADMIN_ID}
     volumes:
       - ./config.py:/app/config.py
+      - ./.env:/app/.env
     depends_on:
       - mongodb
     networks:
@@ -79,6 +82,8 @@ services:
       - ANALYSIS_INTERVAL=${ANALYSIS_INTERVAL:-86400}
     volumes:
       - analysis_data:/app/data
+      - ./config.py:/app/config.py
+      - ./.env:/app/.env
     depends_on:
       - mongodb
       - weather_collector
