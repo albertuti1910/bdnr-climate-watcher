@@ -18,7 +18,7 @@ body {
 .weather-icon {
     width: 60px;
     height: 60px;
-    background-color: #f8f9fa;
+    background-color: #bae1ff;
     border-radius: 50%;
     padding: 10px;
 }
@@ -43,7 +43,7 @@ body {
     text-align: center;
     margin-right: 10px;
     padding: 8px;
-    background-color: #f8f9fa;
+    background-color: #bae1ff;
     border-radius: 6px;
     transition: transform 0.2s;
 }
@@ -397,16 +397,10 @@ body.dark-mode .alert-warning {
     color: #664d03;
 }
 
-body.dark-mode .alert-success {
-    background-color: #d1e7dd;
-    border-color: #badbcc;
-    color: #0f5132;
-}
-
-body.dark-mode .alert-info {
-    background-color: #cff4fc;
-    border-color: #b6effb;
-    color: #055160;
+body.dark-mode .alert-primary {
+    background-color: #cfe2ff;
+    border-color: #b6d4fe;
+    color: #084298;
 }
 
 /* Button styles */
@@ -447,16 +441,10 @@ body.dark-mode .btn-success:hover {
     color: #664d03;
 }
 
-.alert-success {
-    background-color: #d1e7dd;
-    border-color: #badbcc;
-    color: #0f5132;
-}
-
-.alert-info {
-    background-color: #cff4fc;
-    border-color: #b6effb;
-    color: #055160;
+.alert-primary {
+    background-color: #cfe2ff;
+    border-color: #b6d4fe;
+    color: #084298;
 }
 
 .alert .text-muted {
