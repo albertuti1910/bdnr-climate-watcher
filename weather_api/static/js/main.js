@@ -340,6 +340,20 @@ async function loadHistoricalData(city, days = 7) {
                         title: {
                             display: true,
                             text: 'Fecha'
+                        },
+                        ticks: {
+                            callback: function(value, index, values) {
+                                const today = new Date().toLocaleDateString('es-ES', {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    year: 'numeric'
+                                });
+                                const label = this.getLabelForValue(value);
+                                if (label === today) {
+                                    return [label, 'Hoy'];
+                                }
+                                return label;
+                            }
                         }
                     }
                 },
