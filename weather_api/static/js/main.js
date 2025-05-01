@@ -582,14 +582,25 @@ async function loadAlerts(forceCustomThresholds = false) {
                 else if (alert.alert_type === 'Vientos fuertes') alertColor = 'warning';
                 else if (alert.alert_type === 'Tormenta') alertColor = 'secondary';
 
+                // Determinar qué indicador mostrar según el tipo de alerta
+                let indicatorHTML = '';
+                switch(alert.alert_type) {
+                    case 'Temperatura alta':
+                    case 'Temperatura baja':
+                        indicatorHTML = `<span>🌡️ ${alert.temp.toFixed(1)}°C</span>`;
+                        break;
+                    case 'Vientos fuertes':
+                        indicatorHTML = `<span>💨 ${alert.wind_speed} m/s</span>`;
+                        break;
+                    case 'Humedad extrema':
+                        indicatorHTML = `<span>💧 ${alert.humidity}%</span>`;
+                        break;
+                }
+
                 alertsHTML += `
                     <div class="alert alert-${alertColor} p-2 mb-2 small">
                         <div class="fw-bold">${alert.alert_type}</div>
-                        <div>
-                            <span>🌡️ ${alert.temp.toFixed(1)}°C</span> |
-                            <span>💨 ${alert.wind_speed} m/s</span> |
-                            <span>💧 ${alert.humidity}%</span>
-                        </div>
+                        <div>${indicatorHTML}</div>
                         <div class="text-muted small mt-1">
                             Pronóstico: ${new Date(alert.forecast_time * 1000).toLocaleString()}
                         </div>
@@ -598,11 +609,6 @@ async function loadAlerts(forceCustomThresholds = false) {
             });
 
             container.innerHTML = alertsHTML;
-
-            // Procesar notificaciones si están habilitadas
-            if (userAlertConfig.notifications && Notification.permission === 'granted') {
-                notifyRelevantAlerts(cityAlerts);
-            }
         }
     } catch (error) {
         console.error('Error cargando alertas:', error);
