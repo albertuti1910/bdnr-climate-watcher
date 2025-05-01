@@ -1,261 +1,200 @@
-# Sistema de Análisis Climático con MongoDB y OpenWeatherMap
+# BDNR Climate Watcher
 
-Este proyecto implementa un sistema completo para recopilar, almacenar y analizar datos climáticos utilizando MongoDB y la API de OpenWeatherMap. Está diseñado con una arquitectura basada en contenedores Docker para facilitar su despliegue y escalabilidad.
+A comprehensive weather monitoring system that collects, stores, and analyzes weather data using MongoDB and OpenWeatherMap API. The system features real-time data collection, historical analysis, and a user-friendly dashboard.
 
-## Características
+## Key Features
 
-- **Recolección de datos**: Consulta periódica a la API de OpenWeatherMap para obtener datos climáticos actuales y pronósticos.
-- **Almacenamiento en MongoDB**: Los datos se almacenan de forma estructurada y optimizada para consultas.
-- **Análisis de datos**: Procesamiento estadístico, detección de tendencias y generación de informes.
-- **Interfaz de usuario**: Dashboard web para visualizar datos actuales, históricos y alertas.
-- **Sistema de alertas**: Detección automática de condiciones climáticas extremas.
-- **Configuración centralizada**: Archivo centralizado para gestionar ciudades y umbrales de alertas.
-- **Seguridad mejorada**: Rate limiting, validación de entrada, y caché implementados.
-- **API RESTful**: Endpoints documentados con paginación y filtrado.
+- **Real-time Weather Monitoring**: Collects and displays current weather conditions for multiple cities
+- **Historical Data Analysis**: Tracks and visualizes temperature trends over time
+- **Data Verification System**: Implements a robust verification system that tracks both data collection and verification times
+- **Interactive Dashboard**: Modern web interface for viewing current and historical weather data
+- **Multi-city Support**: Monitor weather conditions across multiple cities simultaneously
+- **Data Integrity**: Ensures data accuracy through verification timestamps and update checks
 
-## Estructura del Proyecto
-
-El proyecto está organizado en varios componentes Docker:
+## Project Structure
 
 ```
-proyecto/
-├── .env                         # Variables de entorno (no incluir en git)
-├── .env.example                 # Ejemplo de variables de entorno
-├── .gitignore                   # Archivos ignorados por git
-├── config.py                    # Configuración centralizada del sistema
-├── docker-compose.yml           # Configuración principal de los servicios
-├── docker-compose-telegram.yml  # Configuración de telegram
-├── docker-compose-data-analyzer.yml  # Configuración del analisis
-├── weather_collector/           # Servicio de recolección de datos
-│   ├── Dockerfile
-│   ├── app.py
+bdnr-climate-watcher/
+├── .env                         # Environment variables (not in git)
+├── .env.example                 # Example environment variables
+├── config.py                    # Centralized system configuration
+├── docker-compose.yml           # Main service configuration
+├── weather_collector/           # Data collection service
+│   ├── collector_main.py        # Main collection logic
 │   └── requirements.txt
-├── weather_api/                 # API REST y dashboard web
-│   ├── Dockerfile
-│   ├── app.py
-│   ├── requirements.txt
+├── weather_api/                 # API and web dashboard
+│   ├── api_main.py             # API endpoints and logic
+│   ├── static/                 # Static files (JS, CSS)
+│   │   └── js/
+│   │       └── main.js         # Frontend logic
 │   └── templates/
-│       └── index.html
-├── data_analyzer/               # Análisis estadístico y reportes
-│   ├── Dockerfile
-│   ├── app.py
-│   └── requirements.txt
-├── telegram_bot/                # Bot de alertas por Telegram
-│   ├── Dockerfile
-│   ├── app.py
-│   └── requirements.txt
+│       └── index.html          # Dashboard template
 └── README.md
 ```
 
-## Requisitos
+## Core Components
 
-- Docker y Docker Compose
-- Clave API de OpenWeatherMap
-- Python 3.8 o superior
-- MongoDB 4.4 o superior
+### Weather Collector
+- Periodically fetches weather data from OpenWeatherMap API
+- Stores data in MongoDB with timestamps
+- Implements data verification tracking
 
-## Instalación y Uso
+### Weather API
+- RESTful API endpoints for weather data
+- Web dashboard for data visualization
+- Data verification and update management
 
-### 1. Clonar el repositorio
+### MongoDB Database
+- Stores weather data with timestamps
+- Tracks data collection and verification times
+- Optimized for weather data queries
 
+## Installation
+
+### Prerequisites
+- Docker and Docker Compose
+- OpenWeatherMap API key
+- Python 3.8 or higher
+- MongoDB 4.4 or higher
+
+### Setup
+
+1. Clone the repository:
 ```bash
-git clone https://github.com/tu-usuario/sistema-analisis-climatico.git
-cd sistema-analisis-climatico
+git clone https://github.com/your-username/bdnr-climate-watcher.git
+cd bdnr-climate-watcher
 ```
 
-### 2. Configurar variables de entorno
-
+2. Configure environment variables:
 ```bash
 cp .env.example .env
 ```
+Edit `.env` with your:
+- OpenWeatherMap API key
+- MongoDB credentials
+- System configuration
 
-Edita el archivo `.env` con tu información:
-- Añade tu clave API de OpenWeatherMap
-- Configura credenciales para MongoDB
-- Ajusta los umbrales para alertas si lo deseas
-- Configura las opciones de seguridad y caché
-
-### 3. Personalizar ciudades a monitorizar
-
-Edita el archivo `config.py` para añadir o quitar ciudades:
-
-```python
-CITIES = [
-    {"id": 3117735, "name": "Madrid", "country": "ES"},
-    {"id": 3128760, "name": "Barcelona", "country": "ES"},
-    # Añade más ciudades según necesites
-]
-```
-
-### 4. Ejecutar el sistema
-
+3. Start the services:
 ```bash
 docker-compose up -d
 ```
 
-Esto iniciará los siguientes servicios:
-- MongoDB para almacenamiento de datos
-- Weather Collector para obtener datos de la API
-- Weather API para el dashboard web
-- Redis para caché y rate limiting (opcional)
-
-### 5. Verificar que todo funciona correctamente
-
-```bash
-docker-compose ps
-docker-compose logs
-```
-
 ## API Endpoints
 
-### Clima Actual
+### Current Weather
 ```
 GET /api/current/<city>
 ```
-Obtiene el clima actual para una ciudad específica.
+Returns current weather data including:
+- Temperature, humidity, pressure
+- Weather conditions
+- Last verification timestamp
 
-### Datos Históricos
+### Historical Data
 ```
-GET /api/historical/<city>?days=7&page=1&per_page=100
+GET /api/historical/<city>?days=7
 ```
-Obtiene datos históricos con paginación.
+Returns historical temperature data:
+- Daily average, minimum, and maximum temperatures
+- Data sorted chronologically
+- Configurable time range (7, 14, or 30 days)
 
-### Lista de Ciudades
+### System Statistics
 ```
-GET /api/cities
+GET /api/stats
 ```
-Obtiene la lista de ciudades disponibles.
+Returns system-wide statistics:
+- Total number of forecasts
+- Number of monitored cities
+- Last verification timestamp across all cities
 
-### Métricas
-```
-GET /api/metrics/collector
-GET /api/metrics/summary
-```
-Obtiene métricas del sistema.
+## Data Verification System
 
-## Seguridad
+The system implements a sophisticated data verification system:
 
-El sistema implementa las siguientes medidas de seguridad:
+1. **Data Collection Time**: When weather data is first collected from OpenWeatherMap
+2. **Last Verification Time**: When the data was last checked/verified
+3. **Update Frequency**: Data is verified if older than 1 hour
 
-- **Rate Limiting**: Limita el número de peticiones por IP
-- **Validación de Entrada**: Valida todos los parámetros de entrada
-- **Caché**: Reduce la carga en la base de datos
-- **Autenticación**: Protección de endpoints con API key
-- **CORS**: Configuración de orígenes permitidos
+This ensures:
+- Accurate tracking of data freshness
+- Clear distinction between collection and verification times
+- Automatic updates when data becomes stale
 
-## Monitoreo
+## Dashboard Features
 
-El sistema incluye métricas y monitoreo:
+The web dashboard provides:
 
-- Prometheus para métricas
-- Grafana para visualización
-- Logs estructurados
-- Health checks
+1. **Current Weather Display**
+   - Real-time weather conditions
+   - Last verification time for the selected city
+   - Temperature, humidity, and other metrics
 
-## Opciones de Implementación
+2. **Temperature History**
+   - Interactive chart showing temperature trends
+   - Daily average, minimum, and maximum temperatures
+   - Configurable time range selection
 
-### 1. Dashboard Web
+3. **System Statistics**
+   - Overview of monitored cities
+   - Last verification time across all data
+   - Total number of forecasts
 
-Una interfaz web interactiva que muestra:
-- Clima actual para diferentes ciudades
-- Gráficos históricos de temperatura y otras variables
-- Pronóstico a 5 días
-- Alertas meteorológicas activas
+## Configuration
 
-### 2. Bot de Telegram (Opcional)
-
-Si deseas activar el bot de Telegram:
-
-1. Obtén un token de bot a través de @BotFather en Telegram
-2. Añade el token a tu archivo `.env`:
-   ```
-   ENABLE_TELEGRAM=true
-   TELEGRAM_TOKEN=tu_token_de_telegram
-   ```
-3. Inicia el servicio:
-   ```bash
-   docker-compose -f docker-compose.yml -f docker-compose-telegram.yml up -d
-   ```
-
-### 3. Análisis de Datos y Reportes (Opcional)
-
-Para activar el análisis de datos:
-
-```bash
-docker-compose -f docker-compose.yml -f docker-compose-data-analyzer.yml up -d
-```
-
-## Personalización de Umbrales de Alertas
-
-Los umbrales para las alertas se pueden configurar en `config.py` o a través de variables de entorno `.env`:
-
+### Cities Configuration
+Edit `config.py` to add or remove cities:
 ```python
-# En config.py
-THRESHOLDS = {
-    'temp_high': 35.0,  # Temperatura alta (°C)
-    'temp_low': 0.0,    # Temperatura baja (°C)
-    'wind': 20.0,       # Viento fuerte (m/s)
-    'humidity': 95.0,   # Humedad extrema (%)
-    'rain': 10.0        # Lluvia intensa (mm en 3h)
-}
+CITIES = [
+    {"id": 3117735, "name": "Madrid", "country": "ES"},
+    {"id": 3128760, "name": "Barcelona", "country": "ES"},
+    # Add more cities as needed
+]
 ```
 
-## Configuración Avanzada
-
-### Caché
-
-El sistema utiliza Redis para caché y rate limiting. Para activar:
-
-1. Añade Redis a tu docker-compose.yml
-2. Configura las variables de entorno:
-   ```
-   CACHE_TYPE=redis
-   CACHE_REDIS_URL=redis://redis:6379/0
-   RATE_LIMIT_STORAGE_URL=redis://redis:6379/1
-   ```
-
-### Monitoreo
-
-Para activar el monitoreo con Prometheus y Grafana:
-
-1. Añade los servicios a docker-compose.yml
-2. Configura las variables de entorno:
-   ```
-   ENABLE_METRICS=true
-   METRICS_PORT=9090
-   ```
-
-## Solución de Problemas
-
-### MongoDB no es accesible
-
-Verifica la conexión y credenciales:
-```bash
-docker-compose exec mongodb mongosh -u admin -p password_seguro
+### Environment Variables
+Key configuration options in `.env`:
+```
+OPENWEATHER_API_KEY=your_api_key
+MONGODB_URI=mongodb://user:password@mongodb:27017
+VERIFICATION_INTERVAL=3600  # Data verification interval in seconds
 ```
 
-### API no responde
+## Troubleshooting
 
-Verifica los logs:
+### Common Issues
+
+1. **Data Not Updating**
+   - Check OpenWeatherMap API key
+   - Verify MongoDB connection
+   - Check collector service logs
+
+2. **Verification Times Not Updating**
+   - Ensure MongoDB is accessible
+   - Check system time synchronization
+   - Verify API endpoint responses
+
+3. **Dashboard Not Loading**
+   - Check browser console for errors
+   - Verify API connectivity
+   - Check network connectivity
+
+### Logs and Monitoring
+
+View service logs:
 ```bash
+docker-compose logs weather_collector
 docker-compose logs weather_api
 ```
 
-### Rate Limiting
+## Contributing
 
-Si recibes errores 429, ajusta los límites en `.env`:
-```
-API_RATE_LIMIT=200/minute
-```
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
 
-## Contribución
+## License
 
-1. Fork el repositorio
-2. Crea una rama para tu feature (`git checkout -b feature/AmazingFeature`)
-3. Commit tus cambios (`git commit -m 'Add some AmazingFeature'`)
-4. Push a la rama (`git push origin feature/AmazingFeature`)
-5. Abre un Pull Request
-
-## Licencia
-
-Este proyecto está licenciado bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) para más detalles.
+This project is licensed under the MIT License - see the LICENSE file for details.
