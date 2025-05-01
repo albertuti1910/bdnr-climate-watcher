@@ -281,6 +281,8 @@ def get_historical_data(city):
         city_query = CityQuery(city=city)
         weather_query = WeatherQuery(days=int(request.args.get('days', 7)))
 
+        logger.info(f"Requested historical data for {city} for the last {weather_query.days} days")
+
         # Parámetros de paginación
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', 100))
@@ -290,28 +292,14 @@ def get_historical_data(city):
         if per_page < 1 or per_page > 1000:
             per_page = 100
 
-        date_limit = datetime.utcnow() - timedelta(days=weather_query.days)
+        # Get all documents for the city
+        forecast_data = list(db[MONGO_CONFIG['collections']['hourly_forecast']].find(
+            {"city.name": city_query.city},
+            {"_id": 0}
+        ))
 
-        # Calcular skip y limit para paginación
-        skip = (page - 1) * per_page
-
-        # Obtener total de documentos
-        total = db[MONGO_CONFIG['collections']['hourly_forecast']].count_documents({
-            "city.name": city_query.city,
-            "collected_at": {"$gte": date_limit}
-        })
-
-        # Obtener datos paginados
-        results = db[MONGO_CONFIG['collections']['hourly_forecast']].find({
-            "city.name": city_query.city,
-            "collected_at": {"$gte": date_limit}
-        }).sort("collected_at", 1).skip(skip).limit(per_page)  # Changed to ascending sort
-
-        forecast_list = []
-        for doc in results:
-            forecast_list.extend(doc.get("list", []))
-
-        if not forecast_list:
+        if not forecast_data:
+            logger.warning("No documents found for city")
             return jsonify({
                 "data": [],
                 "pagination": {
@@ -322,35 +310,85 @@ def get_historical_data(city):
                 }
             })
 
-        # Eliminar duplicados por timestamp
+        # Collect all forecasts from all documents
+        all_forecasts = []
+        for doc in forecast_data:
+            if 'list' in doc:
+                all_forecasts.extend(doc['list'])
+
+        if not all_forecasts:
+            logger.warning("No forecasts found in documents")
+            return jsonify({
+                "data": [],
+                "pagination": {
+                    "total": 0,
+                    "page": page,
+                    "per_page": per_page,
+                    "total_pages": 0
+                }
+            })
+
+        # Remove duplicates and sort by timestamp
         seen = set()
         unique_forecasts = []
-        for item in forecast_list:
+        for item in all_forecasts:
             if item["dt"] not in seen:
                 seen.add(item["dt"])
                 unique_forecasts.append(item)
 
+        # Sort by timestamp
+        unique_forecasts.sort(key=lambda x: x['dt'])
+
+        # Get the most recent forecast date
+        most_recent_forecast = datetime.fromtimestamp(unique_forecasts[-1]["dt"])
+        end_date = most_recent_forecast
+        start_date = end_date - timedelta(days=weather_query.days)
+
+        logger.info(f"Date range based on forecasts: {start_date} to {end_date}")
+
+        # Filter forecasts within the date range
+        forecast_list = []
+        for forecast in unique_forecasts:
+            forecast_dt = datetime.fromtimestamp(forecast["dt"])
+            if start_date <= forecast_dt <= end_date:
+                forecast_list.append(forecast)
+
+        logger.info(f"Found {len(forecast_list)} forecasts in the date range")
+
+        if not forecast_list:
+            logger.warning("No forecasts found in the date range")
+            return jsonify({
+                "data": [],
+                "pagination": {
+                    "total": 0,
+                    "page": page,
+                    "per_page": per_page,
+                    "total_pages": 0
+                }
+            })
+
         # Convertir a estructura con fecha
         processed = []
-        for f in unique_forecasts:
+        for f in forecast_list:
             forecast_dt = datetime.fromtimestamp(f["dt"])
-            if forecast_dt < datetime.utcnow():
-                processed.append({
-                    "date": forecast_dt.date().isoformat(),
-                    "temp": f["main"]["temp"],
-                    "temp_min": f["main"].get("temp_min", f["main"]["temp"]),
-                    "temp_max": f["main"].get("temp_max", f["main"]["temp"]),
-                    "humidity": f["main"]["humidity"],
-                    "pressure": f["main"]["pressure"],
-                    "wind_speed": f["wind"]["speed"],
-                    "precipitation": f.get("rain", {}).get("1h", 0) if "rain" in f else 0
-                })
+            processed.append({
+                "date": forecast_dt.date().isoformat(),
+                "temp": f["main"]["temp"],
+                "temp_min": f["main"].get("temp_min", f["main"]["temp"]),
+                "temp_max": f["main"].get("temp_max", f["main"]["temp"]),
+                "humidity": f["main"]["humidity"],
+                "pressure": f["main"]["pressure"],
+                "wind_speed": f["wind"]["speed"],
+                "precipitation": f.get("rain", {}).get("1h", 0) if "rain" in f else 0
+            })
 
         # Agrupar por día
         from collections import defaultdict
         grouped = defaultdict(list)
         for item in processed:
             grouped[item["date"]].append(item)
+
+        logger.info(f"Grouped into {len(grouped)} unique days")
 
         # Calcular promedios por día
         result = []
@@ -374,9 +412,16 @@ def get_historical_data(city):
 
         # Ordenar por fecha (ascendente)
         result.sort(key=lambda x: x["date"])
+        logger.info(f"Final result contains {len(result)} days: {[r['date'] for r in result]}")
+
+        # Apply pagination
+        total = len(result)
+        start_idx = (page - 1) * per_page
+        end_idx = start_idx + per_page
+        paginated_result = result[start_idx:end_idx]
 
         return jsonify({
-            "data": result,
+            "data": paginated_result,
             "pagination": {
                 "total": total,
                 "page": page,

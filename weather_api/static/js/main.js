@@ -215,6 +215,7 @@ async function loadHourlyForecast(city) {
 // Cargar datos históricos
 async function loadHistoricalData(city, days = 7) {
     try {
+        console.log(`Loading historical data for ${city} for the last ${days} days`);
         const response = await fetch(`/api/historical/${city}?days=${days}`);
 
         if (!response.ok) {
@@ -222,15 +223,17 @@ async function loadHistoricalData(city, days = 7) {
         }
 
         const data = await response.json();
+        console.log(`Received ${data.data.length} data points from API`);
 
         if (!data.data || data.data.length === 0) {
             document.getElementById('temp-chart').parentNode.innerHTML =
-                '<p class="text-center text-muted">No hay datos históricos disponibles para esta ciudad</p>';
+                '<p class="text-center text-muted">No hay datos disponibles para esta ciudad</p>';
             return;
         }
 
         // Ordenar los datos por fecha de más antigua a más reciente
         const sortedData = data.data.sort((a, b) => new Date(a.date) - new Date(b.date));
+        console.log(`Sorted data dates: ${sortedData.map(d => d.date).join(', ')}`);
 
         // Formatear fechas para mostrar
         const labels = sortedData.map(d => {
@@ -241,8 +244,10 @@ async function loadHistoricalData(city, days = 7) {
                 year: 'numeric'
             });
         });
+        console.log(`Chart labels: ${labels.join(', ')}`);
 
         const category = document.getElementById('history-category').value;
+        console.log(`Selected category: ${category}`);
 
         let datasets = [];
         let yAxisTitle = '';
@@ -312,6 +317,8 @@ async function loadHistoricalData(city, days = 7) {
                 break;
         }
 
+        console.log(`Created ${datasets.length} datasets for the chart`);
+
         const ctx = document.getElementById('temp-chart').getContext('2d');
 
         // Destruir gráfico anterior si existe
@@ -354,6 +361,7 @@ async function loadHistoricalData(city, days = 7) {
                 }
             }
         });
+        console.log('Chart created successfully');
     } catch (error) {
         console.error('Error cargando datos históricos:', error);
         document.getElementById('temp-chart').parentNode.innerHTML =
