@@ -305,7 +305,7 @@ def get_historical_data(city):
         results = db[MONGO_CONFIG['collections']['hourly_forecast']].find({
             "city.name": city_query.city,
             "collected_at": {"$gte": date_limit}
-        }).sort("collected_at", -1).skip(skip).limit(per_page)
+        }).sort("collected_at", 1).skip(skip).limit(per_page)  # Changed to ascending sort
 
         forecast_list = []
         for doc in results:
@@ -341,7 +341,9 @@ def get_historical_data(city):
                     "temp_min": f["main"].get("temp_min", f["main"]["temp"]),
                     "temp_max": f["main"].get("temp_max", f["main"]["temp"]),
                     "humidity": f["main"]["humidity"],
-                    "pressure": f["main"]["pressure"]
+                    "pressure": f["main"]["pressure"],
+                    "wind_speed": f["wind"]["speed"],
+                    "precipitation": f.get("rain", {}).get("1h", 0) if "rain" in f else 0
                 })
 
         # Agrupar por día
@@ -365,11 +367,13 @@ def get_historical_data(city):
                 "temp_min": round(min_temp, 2),
                 "temp_max": round(max_temp, 2),
                 "humidity_avg": round(avg_humidity, 2),
-                "pressure_avg": round(avg_pressure, 2)
+                "pressure_avg": round(avg_pressure, 2),
+                "wind_speed": round(sum(i["wind_speed"] for i in items) / len(items), 2),
+                "precipitation": round(sum(i["precipitation"] for i in items), 2)
             })
 
-        # Ordenar por fecha
-        result.sort(key=lambda x: x["date"], reverse=True)
+        # Ordenar por fecha (ascendente)
+        result.sort(key=lambda x: x["date"])
 
         return jsonify({
             "data": result,
@@ -562,7 +566,13 @@ def get_custom_alerts():
         wind = float(request.args.get('wind', 15))
         humidity = float(request.args.get('humidity', 90))
 
-        # Obtener el último pronóstico para cada ciudad
+        logger.info(f"Thresholds received - temp_high: {temp_high}, temp_low: {temp_low}, wind: {wind}, humidity: {humidity}")
+
+        # Obtener timestamp actual
+        current_time = datetime.utcnow()
+        current_timestamp = int(current_time.timestamp())
+
+        # Obtener el próximo pronóstico para cada ciudad
         pipeline = [
             # Primero, desenrollar la lista de cada documento
             {"$unwind": "$list"},
@@ -570,15 +580,12 @@ def get_custom_alerts():
             # Ordenar por ciudad y timestamp del pronóstico
             {"$sort": {"city.name": 1, "list.dt": 1}},
 
-            # Filtrar solo pronósticos futuros (próximas 24 horas)
+            # Filtrar solo pronósticos futuros
             {"$match": {
-                "list.dt": {
-                    "$gte": int(datetime.utcnow().timestamp()),
-                    "$lte": int((datetime.utcnow() + timedelta(hours=24)).timestamp())
-                }
+                "list.dt": {"$gt": current_timestamp}
             }},
 
-            # Agrupar por ciudad para obtener el primer pronóstico futuro de cada ciudad
+            # Agrupar por ciudad para obtener el primer pronóstico futuro
             {"$group": {
                 "_id": "$city.name",
                 "city": {"$first": "$city.name"},
@@ -600,31 +607,33 @@ def get_custom_alerts():
 
             # Añadir un campo para el tipo de alerta
             {"$addFields": {
-                "alert_type": {
-                    "$cond": [
-                        {"$gt": ["$temp", temp_high]},
-                        "Temperatura alta",
-                        {"$cond": [
-                            {"$lt": ["$temp", temp_low]},
-                            "Temperatura baja",
-                            {"$cond": [
-                                {"$gt": ["$wind_speed", wind]},
-                                "Vientos fuertes",
-                                "Humedad extrema"
-                            ]}
-                        ]}
+                "alert_types": {
+                    "$concatArrays": [
+                        {"$cond": [{"$gt": ["$temp", temp_high]}, ["Temperatura alta"], []]},
+                        {"$cond": [{"$lt": ["$temp", temp_low]}, ["Temperatura baja"], []]},
+                        {"$cond": [{"$gt": ["$wind_speed", wind]}, ["Vientos fuertes"], []]},
+                        {"$cond": [{"$gt": ["$humidity", humidity]}, ["Humedad extrema"], []]}
                     ]
-                },
-                "thresholds": {
-                    "temp_high": temp_high,
-                    "temp_low": temp_low,
-                    "wind": wind,
-                    "humidity": humidity
                 }
+            }},
+
+            # Desenrollar los tipos de alerta para crear un documento por cada tipo
+            {"$unwind": "$alert_types"},
+
+            # Renombrar alert_types a alert_type
+            {"$project": {
+                "city": 1,
+                "temp": 1,
+                "wind_speed": 1,
+                "humidity": 1,
+                "forecast_time": 1,
+                "alert_type": "$alert_types"
             }}
         ]
 
+        # Ejecutar la consulta y obtener resultados
         alerts = list(db[MONGO_CONFIG['collections']['hourly_forecast']].aggregate(pipeline))
+        logger.info(f"Found {len(alerts)} alerts")
 
         # Convertir ObjectId y datetime a formato serializable
         serialized_alerts = json.loads(json_util.dumps(alerts))
@@ -639,7 +648,7 @@ def get_custom_alerts():
         logger.error(f"Error en get_custom_alerts: {str(e)}")
         return jsonify({
             'status': 'error',
-            'message': 'Error al procesar las alertas'
+            'message': str(e)
         }), 500
 
 @app.route('/api/config/thresholds')

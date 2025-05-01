@@ -232,10 +232,85 @@ async function loadHistoricalData(city, days = 7) {
         // Ordenar los datos por fecha de más antigua a más reciente
         const sortedData = data.data.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-        const labels = sortedData.map(d => d.date);
-        const avgTemps = sortedData.map(d => d.temp_avg);
-        const minTemps = sortedData.map(d => d.temp_min);
-        const maxTemps = sortedData.map(d => d.temp_max);
+        // Formatear fechas para mostrar
+        const labels = sortedData.map(d => {
+            const date = new Date(d.date);
+            return date.toLocaleDateString('es-ES', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric'
+            });
+        });
+
+        const category = document.getElementById('history-category').value;
+
+        let datasets = [];
+        let yAxisTitle = '';
+
+        switch (category) {
+            case 'temperature':
+                datasets = [
+                    {
+                        label: 'Temp. Media',
+                        data: sortedData.map(d => d.temp_avg),
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                        fill: false,
+                        tension: 0.1
+                    },
+                    {
+                        label: 'Temp. Máxima',
+                        data: sortedData.map(d => d.temp_max),
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                        fill: false,
+                        tension: 0.1
+                    },
+                    {
+                        label: 'Temp. Mínima',
+                        data: sortedData.map(d => d.temp_min),
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                        fill: false,
+                        tension: 0.1
+                    }
+                ];
+                yAxisTitle = 'Temperatura (°C)';
+                break;
+            case 'precipitation':
+                datasets = [{
+                    label: 'Precipitación',
+                    data: sortedData.map(d => d.precipitation || 0),
+                    borderColor: 'rgba(0, 123, 255, 1)',
+                    backgroundColor: 'rgba(0, 123, 255, 0.2)',
+                    fill: true,
+                    tension: 0.1
+                }];
+                yAxisTitle = 'Precipitación (mm)';
+                break;
+            case 'wind':
+                datasets = [{
+                    label: 'Velocidad del Viento',
+                    data: sortedData.map(d => d.wind_speed || 0),
+                    borderColor: 'rgba(255, 193, 7, 1)',
+                    backgroundColor: 'rgba(255, 193, 7, 0.2)',
+                    fill: true,
+                    tension: 0.1
+                }];
+                yAxisTitle = 'Velocidad del Viento (m/s)';
+                break;
+            case 'humidity':
+                datasets = [{
+                    label: 'Humedad',
+                    data: sortedData.map(d => d.humidity_avg || 0),
+                    borderColor: 'rgba(23, 162, 184, 1)',
+                    backgroundColor: 'rgba(23, 162, 184, 0.2)',
+                    fill: true,
+                    tension: 0.1
+                }];
+                yAxisTitle = 'Humedad (%)';
+                break;
+        }
 
         const ctx = document.getElementById('temp-chart').getContext('2d');
 
@@ -248,42 +323,17 @@ async function loadHistoricalData(city, days = 7) {
             type: 'line',
             data: {
                 labels: labels,
-                datasets: [
-                    {
-                        label: 'Temp. Media',
-                        data: avgTemps,
-                        borderColor: 'rgba(54, 162, 235, 1)',
-                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                        fill: false,
-                        tension: 0.1
-                    },
-                    {
-                        label: 'Temp. Máxima',
-                        data: maxTemps,
-                        borderColor: 'rgba(255, 99, 132, 1)',
-                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
-                        fill: false,
-                        tension: 0.1
-                    },
-                    {
-                        label: 'Temp. Mínima',
-                        data: minTemps,
-                        borderColor: 'rgba(75, 192, 192, 1)',
-                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
-                        fill: false,
-                        tension: 0.1
-                    }
-                ]
+                datasets: datasets
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: true,
                 scales: {
                     y: {
-                        beginAtZero: false,
+                        beginAtZero: category === 'precipitation' || category === 'wind',
                         title: {
                             display: true,
-                            text: 'Temperatura (°C)'
+                            text: yAxisTitle
                         }
                     },
                     x: {
@@ -310,6 +360,14 @@ async function loadHistoricalData(city, days = 7) {
             '<p class="text-center text-danger">Error al cargar los datos históricos</p>';
     }
 }
+
+// Event listener para cambios en el selector de categoría
+document.getElementById('history-category').addEventListener('change', function() {
+    const selectedCity = document.getElementById('city-selector').value;
+    if (selectedCity) {
+        loadHistoricalData(selectedCity, document.getElementById('history-days').value);
+    }
+});
 
 // Cargar pronóstico diario
 async function loadForecast(city) {
@@ -469,7 +527,10 @@ function validateThresholdValue(value, defaultValue) {
         return defaultValue;
     }
     const numValue = parseFloat(value);
-    return isNaN(numValue) ? defaultValue : numValue;
+    if (isNaN(numValue) || numValue < 0) {
+        return defaultValue;
+    }
+    return numValue;
 }
 
 // Cargar alertas
@@ -488,7 +549,10 @@ async function loadAlerts(forceCustomThresholds = false) {
         const windSpeed = validateThresholdValue(document.getElementById('wind-speed').value, DEFAULT_ALERT_THRESHOLDS.wind_speed);
         const humidity = validateThresholdValue(document.getElementById('humidity').value, DEFAULT_ALERT_THRESHOLDS.humidity);
 
-        let url = `/api/alerts/custom?temp_high=${tempHigh}&temp_low=${tempLow}&wind=${windSpeed}&humidity=${humidity}`;
+        // Asegurarse de que tempLow sea menor que tempHigh
+        const finalTempLow = Math.min(tempLow, tempHigh - 1);
+
+        let url = `/api/alerts/custom?temp_high=${tempHigh}&temp_low=${finalTempLow}&wind=${windSpeed}&humidity=${humidity}`;
 
         const response = await fetch(url);
 
@@ -543,7 +607,7 @@ async function loadAlerts(forceCustomThresholds = false) {
     } catch (error) {
         console.error('Error cargando alertas:', error);
         document.getElementById('alerts-container').innerHTML =
-            '<p class="text-center text-danger">Error al cargar alertas</p>';
+            `<p class="text-center text-danger">Error al cargar alertas: ${error.message}</p>`;
     }
 }
 
@@ -1013,6 +1077,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Cargar configuración de alertas
     loadAlertConfig();
+
+    // Event listener para el botón de guardar configuración
+    const saveConfigBtn = document.getElementById('save-alerts');
+    if (saveConfigBtn) {
+        saveConfigBtn.addEventListener('click', async function(e) {
+            e.preventDefault();
+            await saveAlertConfig();
+        });
+    }
 
     // Event listeners para botones de exportación
     document.querySelectorAll('.export-data').forEach(button => {

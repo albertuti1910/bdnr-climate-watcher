@@ -148,8 +148,14 @@
                 <div class="card">
                     <div class="card-header">
                         <div class="d-flex justify-content-between align-items-center">
-                            <h5>Historial de Temperatura</h5>
+                            <h5>Datos Históricos</h5>
                             <div class="d-flex align-items-center">
+                                <select id="history-category" class="form-select form-select-sm me-2" style="width: auto;">
+                                    <option value="temperature">Temperatura</option>
+                                    <option value="precipitation">Precipitación</option>
+                                    <option value="wind">Viento</option>
+                                    <option value="humidity">Humedad</option>
+                                </select>
                                 <span class="me-2">Mostrar:</span>
                                 <select id="history-days" class="form-select form-select-sm" style="width: auto;">
                                     <option value="7">7 días</option>
