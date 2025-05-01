@@ -115,7 +115,7 @@ async function loadCurrentWeather(city) {
         const data = await response.json();
 
         // Verificar si los datos son demasiado antiguos (más de 1 hora)
-        const lastUpdate = new Date(data.updated_at);
+        const lastUpdate = new Date(data.last_check);
         const now = new Date();
         const hoursDiff = Math.abs(now - lastUpdate) / 36e5; // diferencia en horas
 
@@ -150,7 +150,7 @@ async function loadCurrentWeather(city) {
             </div>
             <div class="text-muted small mt-2">
                 Fecha y hora: ${now.toLocaleString()}<br>
-                Última actualización: ${new Date(data.updated_at).toLocaleString()}
+                Última verificación: ${new Date(data.last_check).toLocaleString()}
             </div>
         `;
 
@@ -192,8 +192,6 @@ async function loadHourlyForecast(city) {
             const hour = date.getHours().toString().padStart(2, '0') + ':00';
             const dayMonth = date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
 
-            console.log(`Pronóstico ${index+1}: ${hour} del ${dayMonth} - ${item.temp.toFixed(1)}°C`);
-
             hourlyHTML += `
                 <div class="hourly-item">
                     <div class="small fw-bold">${hour}</div>
@@ -231,10 +229,13 @@ async function loadHistoricalData(city, days = 7) {
             return;
         }
 
-        const labels = data.data.map(d => d.date);
-        const avgTemps = data.data.map(d => d.temp_avg);
-        const minTemps = data.data.map(d => d.temp_min);
-        const maxTemps = data.data.map(d => d.temp_max);
+        // Ordenar los datos por fecha de más antigua a más reciente
+        const sortedData = data.data.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        const labels = sortedData.map(d => d.date);
+        const avgTemps = sortedData.map(d => d.temp_avg);
+        const minTemps = sortedData.map(d => d.temp_min);
+        const maxTemps = sortedData.map(d => d.temp_max);
 
         const ctx = document.getElementById('temp-chart').getContext('2d');
 
@@ -462,6 +463,15 @@ async function loadForecast(city) {
     }
 }
 
+// Función para validar y formatear valores de umbral
+function validateThresholdValue(value, defaultValue) {
+    if (value === undefined || value === null || value === '') {
+        return defaultValue;
+    }
+    const numValue = parseFloat(value);
+    return isNaN(numValue) ? defaultValue : numValue;
+}
+
 // Cargar alertas
 async function loadAlerts(forceCustomThresholds = false) {
     try {
@@ -472,7 +482,13 @@ async function loadAlerts(forceCustomThresholds = false) {
             return;
         }
 
-        let url = `/api/alerts/custom?temp_high=${userAlertConfig.thresholds.temp_high}&temp_low=${userAlertConfig.thresholds.temp_low}&wind=${userAlertConfig.thresholds.wind}&humidity=${userAlertConfig.thresholds.humidity}`;
+        // Obtener y validar los valores de los umbrales
+        const tempHigh = validateThresholdValue(document.getElementById('temp-high').value, DEFAULT_ALERT_THRESHOLDS.temp_high);
+        const tempLow = validateThresholdValue(document.getElementById('temp-low').value, DEFAULT_ALERT_THRESHOLDS.temp_low);
+        const windSpeed = validateThresholdValue(document.getElementById('wind-speed').value, DEFAULT_ALERT_THRESHOLDS.wind_speed);
+        const humidity = validateThresholdValue(document.getElementById('humidity').value, DEFAULT_ALERT_THRESHOLDS.humidity);
+
+        let url = `/api/alerts/custom?temp_high=${tempHigh}&temp_low=${tempLow}&wind=${windSpeed}&humidity=${humidity}`;
 
         const response = await fetch(url);
 
@@ -613,7 +629,7 @@ async function loadStats() {
         container.innerHTML = `
             Pronósticos: ${stats.total_forecasts.toLocaleString()} |
             Ciudades: ${stats.cities_count} |
-            Última actualización: ${stats.last_update}
+            Última verificación: ${new Date(stats.last_verification).toLocaleString()}
         `;
     } catch (error) {
         console.error('Error cargando estadísticas:', error);
@@ -663,130 +679,90 @@ function updateAlertStatus() {
     }
 }
 
-// Update the save alerts event listener to remove summary updates
-document.getElementById('save-alerts').addEventListener('click', async function() {
-    const saveButton = this;
-    const originalText = saveButton.innerHTML;
-
-    // Show loading state
-    saveButton.disabled = true;
-    saveButton.classList.add('btn-loading');
-    saveButton.innerHTML = '<i class="bi bi-arrow-repeat"></i> Guardando...';
-
+// Guardar configuración de alertas
+async function saveAlertConfig() {
     try {
-        // Obtener estado de notificaciones
-        const notificationsEnabled = document.getElementById('enable-notifications').checked;
+        // Obtener y validar los valores de los umbrales
+        const tempHigh = validateThresholdValue(document.getElementById('temp-high').value, DEFAULT_ALERT_THRESHOLDS.temp_high);
+        const tempLow = validateThresholdValue(document.getElementById('temp-low').value, DEFAULT_ALERT_THRESHOLDS.temp_low);
+        const windSpeed = validateThresholdValue(document.getElementById('wind-speed').value, DEFAULT_ALERT_THRESHOLDS.wind_speed);
+        const humidity = validateThresholdValue(document.getElementById('humidity').value, DEFAULT_ALERT_THRESHOLDS.humidity);
 
-        // Obtener umbrales personalizados
-        const tempHigh = parseFloat(document.getElementById('temp-high').value);
-        const tempLow = parseFloat(document.getElementById('temp-low').value);
-        const wind = parseFloat(document.getElementById('wind-speed').value);
-        const humidity = parseInt(document.getElementById('humidity').value);
-
-        // Validar valores
-        if (isNaN(tempHigh) || isNaN(tempLow) || isNaN(wind) || isNaN(humidity)) {
-            throw new Error('Por favor, completa todos los campos con valores numéricos');
-        }
-
-        if (tempHigh < -50 || tempHigh > 50) {
-            document.getElementById('temp-high').classList.add('is-invalid');
-            throw new Error('Temperatura máxima fuera de rango');
-        }
-
-        if (tempLow < -50 || tempLow > 50) {
-            document.getElementById('temp-low').classList.add('is-invalid');
-            throw new Error('Temperatura mínima fuera de rango');
-        }
-
-        if (wind < 0 || wind > 200) {
-            document.getElementById('wind-speed').classList.add('is-invalid');
-            throw new Error('Velocidad del viento fuera de rango');
-        }
-
-        if (humidity < 0 || humidity > 100) {
-            document.getElementById('humidity').classList.add('is-invalid');
-            throw new Error('Humedad fuera de rango');
-        }
-
-        // Actualizar configuración
+        // Actualizar configuración del usuario
         userAlertConfig = {
-            notifications: notificationsEnabled,
+            notifications: document.getElementById('enable-notifications').checked,
             thresholds: {
                 temp_high: tempHigh,
                 temp_low: tempLow,
-                wind: wind,
+                wind_speed: windSpeed,
                 humidity: humidity
             }
         };
 
         // Guardar en localStorage
-        localStorage.setItem('weatherAlertConfig', JSON.stringify(userAlertConfig));
+        localStorage.setItem('alertThresholds', JSON.stringify(userAlertConfig.thresholds));
 
-        // Si las notificaciones están activadas, solicitar permiso
-        if (notificationsEnabled) {
-            requestNotificationPermission();
-        }
-
-        // Update UI
+        // Actualizar UI
         updateAlertStatus();
+        showToast('Configuración guardada correctamente', 'bg-success');
 
-        showToast('Configuración de alertas guardada correctamente', 'bg-success');
-
-        // Recargar alertas con la nueva configuración
+        // Recargar alertas
         const currentCity = document.getElementById('city-selector').value;
         if (currentCity) {
-            loadAlerts(true);
+            await loadAlerts(true);
         }
     } catch (error) {
-        showToast(error.message, 'bg-danger');
-    } finally {
-        // Restore button state
-        saveButton.disabled = false;
-        saveButton.classList.remove('btn-loading');
-        saveButton.innerHTML = originalText;
+        console.error('Error guardando configuración:', error);
+        showToast('Error al guardar la configuración', 'bg-danger');
     }
-});
+}
 
-// Update loadDefaultThresholds to remove summary updates
-function loadDefaultThresholds() {
-    const saveButton = document.getElementById('save-alerts');
-    const originalText = saveButton.innerHTML;
+// Valores por defecto para las alertas
+let DEFAULT_ALERT_THRESHOLDS = {
+    temp_high: 30,
+    temp_low: 5,
+    wind_speed: 15,
+    humidity: 80
+};
 
-    // Show loading state
-    saveButton.disabled = true;
-    saveButton.classList.add('btn-loading');
-    saveButton.innerHTML = '<i class="bi bi-arrow-repeat"></i> Cargando...';
+// Cargar valores por defecto desde el servidor
+async function loadDefaultThresholds() {
+    try {
+        const response = await fetch('/api/config/thresholds');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        DEFAULT_ALERT_THRESHOLDS = {
+            temp_high: data.temp_high,
+            temp_low: data.temp_low,
+            wind_speed: data.wind,
+            humidity: data.humidity
+        };
+        return DEFAULT_ALERT_THRESHOLDS;
+    } catch (error) {
+        console.error('Error cargando umbrales por defecto:', error);
+        return DEFAULT_ALERT_THRESHOLDS;
+    }
+}
 
-    fetch('/api/config/thresholds')
-        .then(response => response.json())
-        .then(defaultThresholds => {
-            document.getElementById('temp-high').value = defaultThresholds.temp_high;
-            document.getElementById('temp-low').value = defaultThresholds.temp_low;
-            document.getElementById('wind-speed').value = defaultThresholds.wind;
-            document.getElementById('humidity').value = defaultThresholds.humidity;
+// Restablecer valores de alerta a los valores por defecto
+async function resetAlertThresholds() {
+    try {
+        const defaultThresholds = await loadDefaultThresholds();
+        document.getElementById('temp-high').value = defaultThresholds.temp_high;
+        document.getElementById('temp-low').value = defaultThresholds.temp_low;
+        document.getElementById('wind-speed').value = defaultThresholds.wind_speed;
+        document.getElementById('humidity').value = defaultThresholds.humidity;
 
-            // Update status
-            userAlertConfig.thresholds = defaultThresholds;
-            updateAlertStatus();
-
-            showToast('Valores predeterminados cargados correctamente', 'bg-success');
-        })
-        .catch(error => {
-            console.error('Error cargando umbrales predeterminados:', error);
-            // Valores por defecto en caso de error
-            document.getElementById('temp-high').value = 35;
-            document.getElementById('temp-low').value = 0;
-            document.getElementById('wind-speed').value = 15;
-            document.getElementById('humidity').value = 90;
-
-            showToast('Error cargando valores predeterminados', 'bg-warning');
-        })
-        .finally(() => {
-            // Restore button state
-            saveButton.disabled = false;
-            saveButton.classList.remove('btn-loading');
-            saveButton.innerHTML = originalText;
-        });
+        // Actualizar la configuración del usuario
+        userAlertConfig.thresholds = defaultThresholds;
+        updateAlertStatus();
+        showToast('Valores restablecidos correctamente', 'bg-success');
+    } catch (error) {
+        console.error('Error al restablecer valores:', error);
+        showToast('Error al restablecer valores', 'bg-danger');
+    }
 }
 
 // Solicitar permiso para notificaciones
@@ -977,11 +953,11 @@ function removeFromFavorites(cityName) {
 }
 
 // Inicializar la aplicación
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     // Inicializar datos
-    loadCities();
-    loadAlerts();
-    loadStats();
+    await loadCities();
+    await loadAlerts();
+    await loadStats();
 
     // Modo oscuro: cargar preferencia y configurar toggle
     const darkToggle = document.getElementById('darkModeToggle');
@@ -1033,7 +1009,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Cargar favoritos al inicio
-    loadFavorites();
+    await loadFavorites();
 
     // Cargar configuración de alertas
     loadAlertConfig();
@@ -1086,4 +1062,29 @@ document.addEventListener('DOMContentLoaded', () => {
             loadCurrentWeather(selectedCity);
         }
     }, 5 * 60 * 1000);
+
+    // Cargar valores por defecto al inicio
+    const defaultThresholds = await loadDefaultThresholds();
+
+    // Cargar valores guardados o usar valores por defecto
+    const savedThresholds = JSON.parse(localStorage.getItem('alertThresholds') || '{}');
+    const currentThresholds = {
+        temp_high: savedThresholds.temp_high || defaultThresholds.temp_high,
+        temp_low: savedThresholds.temp_low || defaultThresholds.temp_low,
+        wind_speed: savedThresholds.wind_speed || defaultThresholds.wind_speed,
+        humidity: savedThresholds.humidity || defaultThresholds.humidity
+    };
+
+    // Actualizar los campos del formulario
+    document.getElementById('temp-high').value = currentThresholds.temp_high;
+    document.getElementById('temp-low').value = currentThresholds.temp_low;
+    document.getElementById('wind-speed').value = currentThresholds.wind_speed;
+    document.getElementById('humidity').value = currentThresholds.humidity;
+
+    // Actualizar la configuración del usuario
+    userAlertConfig.thresholds = currentThresholds;
+    updateAlertStatus();
+
+    // Configurar botón de restablecer valores
+    document.getElementById('reset-alerts').addEventListener('click', resetAlertThresholds);
 });

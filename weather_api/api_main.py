@@ -235,6 +235,16 @@ def get_current_weather(city):
         # Check if the closest forecast is too far in the future (more than 24h)
         time_diff_hours = (closest_forecast['dt'] - current_timestamp) / 3600
 
+        # Only update last_check if the data is older than an hour
+        current_time = datetime.utcnow()
+        last_check = forecast_data[0].get("last_check", forecast_data[0]["collected_at"])
+        if (current_time - last_check).total_seconds() > 3600:
+            db[MONGO_CONFIG['collections']['hourly_forecast']].update_many(
+                {"city.name": city_query.city},
+                {"$set": {"last_check": current_time}}
+            )
+            last_check = current_time
+
         response = {
             "city": forecast_data[0]["city"]["name"],
             "country": forecast_data[0]["city"]["country"],
@@ -248,7 +258,7 @@ def get_current_weather(city):
             "description": closest_forecast["weather"][0]["description"],
             "icon": closest_forecast["weather"][0]["icon"],
             "wind_speed": closest_forecast["wind"]["speed"],
-            "updated_at": forecast_data[0]["collected_at"].strftime('%Y-%m-%d %H:%M:%S')
+            "last_check": last_check.strftime('%Y-%m-%d %H:%M:%S')
         }
 
         # Add warning if forecast is far from current time
@@ -651,18 +661,32 @@ def get_stats():
         stats = {
             "total_forecasts": db[hourly_collection].count_documents({}),
             "cities_count": len(db[hourly_collection].distinct("city.name")),
-            "last_update": None
+            "last_verification": None
         }
 
-        # Obtener última actualización
-        last_entry = db[hourly_collection].find_one(
-            sort=[("collected_at", -1)]
-        )
+        # Obtener última verificación de cualquier ciudad
+        pipeline = [
+            # Desenrollar los documentos para obtener el último check de cada uno
+            {"$sort": {"last_check": -1}},
+            {"$limit": 1},
+            {"$project": {
+                "last_verification": "$last_check"
+            }}
+        ]
 
-        if last_entry:
-            stats["last_update"] = last_entry["collected_at"].strftime("%Y-%m-%d %H:%M:%S")
+        result = list(db[hourly_collection].aggregate(pipeline))
+
+        if result and result[0].get("last_verification"):
+            stats["last_verification"] = result[0]["last_verification"].strftime("%Y-%m-%d %H:%M:%S")
         else:
-            stats["last_update"] = "No hay datos"
+            # Si no hay last_check, buscar el collected_at más reciente
+            last_entry = db[hourly_collection].find_one(
+                sort=[("collected_at", -1)]
+            )
+            if last_entry:
+                stats["last_verification"] = last_entry["collected_at"].strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                stats["last_verification"] = "No hay datos"
 
         # Obtener número total de pronósticos por hora almacenados
         total_hourly_forecasts = 0
