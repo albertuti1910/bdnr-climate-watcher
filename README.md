@@ -141,8 +141,8 @@ The system includes monitoring capabilities:
 ## Contributing
 
 ### Core Contributors
-- Mariana Bordes Bueno
-- Alberto Rivero Monzon
+- Mariana Bordes Bueno https://github.com/marianabordes
+- Alberto Rivero Monzon https://github.com/albertuti1910
 
 ## License
 
