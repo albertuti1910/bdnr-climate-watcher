@@ -290,28 +290,16 @@ def get_historical_data(city):
         if per_page < 1 or per_page > 1000:
             per_page = 100
 
-        date_limit = datetime.utcnow() - timedelta(days=weather_query.days)
-
-        # Calcular skip y limit para paginación
+        # Calcular skip para paginación
         skip = (page - 1) * per_page
 
-        # Obtener total de documentos
-        total = db[MONGO_CONFIG['collections']['hourly_forecast']].count_documents({
-            "city.name": city_query.city,
-            "collected_at": {"$gte": date_limit}
-        })
+        # Obtener la fecha más reciente para esta ciudad
+        last_entry = db[MONGO_CONFIG['collections']['hourly_forecast']].find_one(
+            {"city.name": city_query.city},
+            sort=[("collected_at", -1)]
+        )
 
-        # Obtener datos paginados
-        results = db[MONGO_CONFIG['collections']['hourly_forecast']].find({
-            "city.name": city_query.city,
-            "collected_at": {"$gte": date_limit}
-        }).sort("collected_at", 1).skip(skip).limit(per_page)  # Changed to ascending sort
-
-        forecast_list = []
-        for doc in results:
-            forecast_list.extend(doc.get("list", []))
-
-        if not forecast_list:
+        if not last_entry:
             return jsonify({
                 "data": [],
                 "pagination": {
@@ -322,66 +310,86 @@ def get_historical_data(city):
                 }
             })
 
-        # Eliminar duplicados por timestamp
-        seen = set()
-        unique_forecasts = []
-        for item in forecast_list:
-            if item["dt"] not in seen:
-                seen.add(item["dt"])
-                unique_forecasts.append(item)
+        # Obtener todos los documentos para esta ciudad
+        results = db[MONGO_CONFIG['collections']['hourly_forecast']].find({
+            "city.name": city_query.city
+        }).sort("collected_at", 1).skip(skip).limit(per_page)
 
-        # Convertir a estructura con fecha
-        processed = []
-        for f in unique_forecasts:
-            forecast_dt = datetime.fromtimestamp(f["dt"])
-            if forecast_dt < datetime.utcnow():
-                processed.append({
+        # Recolectar todos los pronósticos
+        all_forecasts = []
+        for doc in results:
+            for forecast in doc.get("list", []):
+                forecast_dt = datetime.fromtimestamp(forecast["dt"])
+                all_forecasts.append({
                     "date": forecast_dt.date().isoformat(),
-                    "temp": f["main"]["temp"],
-                    "temp_min": f["main"].get("temp_min", f["main"]["temp"]),
-                    "temp_max": f["main"].get("temp_max", f["main"]["temp"]),
-                    "humidity": f["main"]["humidity"],
-                    "pressure": f["main"]["pressure"],
-                    "wind_speed": f["wind"]["speed"],
-                    "precipitation": f.get("rain", {}).get("1h", 0) if "rain" in f else 0
+                    "temp": forecast["main"]["temp"],
+                    "humidity": forecast["main"]["humidity"],
+                    "pressure": forecast["main"]["pressure"],
+                    "wind_speed": forecast["wind"]["speed"],
+                    "precipitation": forecast.get("rain", {}).get("1h", 0) if "rain" in forecast else 0
                 })
+
+        if not all_forecasts:
+            return jsonify({
+                "data": [],
+                "pagination": {
+                    "total": 0,
+                    "page": page,
+                    "per_page": per_page,
+                    "total_pages": 0
+                }
+            })
 
         # Agrupar por día
         from collections import defaultdict
         grouped = defaultdict(list)
-        for item in processed:
-            grouped[item["date"]].append(item)
+        for forecast in all_forecasts:
+            grouped[forecast["date"]].append(forecast)
 
-        # Calcular promedios por día
+        # Calcular estadísticas por día
         result = []
-        for date, items in grouped.items():
-            avg_temp = sum(i["temp"] for i in items) / len(items)
-            min_temp = min(i["temp_min"] for i in items)
-            max_temp = max(i["temp_max"] for i in items)
-            avg_humidity = sum(i["humidity"] for i in items) / len(items)
-            avg_pressure = sum(i["pressure"] for i in items) / len(items)
+        for date, forecasts in grouped.items():
+            # Extraer todas las temperaturas del día
+            temps = [f["temp"] for f in forecasts]
+
+            # Calcular estadísticas de temperatura
+            max_temp = max(temps)
+            min_temp = min(temps)
+            avg_temp = sum(temps) / len(temps)
+
+            # Calcular otros promedios
+            avg_humidity = sum(f["humidity"] for f in forecasts) / len(forecasts)
+            avg_pressure = sum(f["pressure"] for f in forecasts) / len(forecasts)
+            avg_wind = sum(f["wind_speed"] for f in forecasts) / len(forecasts)
+            total_precipitation = sum(f["precipitation"] for f in forecasts)
 
             result.append({
                 "date": date,
-                "temp_avg": round(avg_temp, 2),
-                "temp_min": round(min_temp, 2),
                 "temp_max": round(max_temp, 2),
+                "temp_min": round(min_temp, 2),
+                "temp_avg": round(avg_temp, 2),
                 "humidity_avg": round(avg_humidity, 2),
                 "pressure_avg": round(avg_pressure, 2),
-                "wind_speed": round(sum(i["wind_speed"] for i in items) / len(items), 2),
-                "precipitation": round(sum(i["precipitation"] for i in items), 2)
+                "wind_speed": round(avg_wind, 2),
+                "precipitation": round(total_precipitation, 2)
             })
 
         # Ordenar por fecha (ascendente)
         result.sort(key=lambda x: x["date"])
 
+        # Filtrar por el número de días solicitado
+        if result:
+            last_date = datetime.fromisoformat(result[-1]["date"])
+            date_limit = last_date - timedelta(days=weather_query.days)
+            result = [r for r in result if datetime.fromisoformat(r["date"]) >= date_limit]
+
         return jsonify({
             "data": result,
             "pagination": {
-                "total": total,
+                "total": len(result),
                 "page": page,
                 "per_page": per_page,
-                "total_pages": (total + per_page - 1) // per_page
+                "total_pages": (len(result) + per_page - 1) // per_page
             }
         })
     except Exception as e:
