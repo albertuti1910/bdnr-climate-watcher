@@ -232,147 +232,134 @@ async function loadHistoricalData(city, days = 7) {
         // Ordenar los datos por fecha de más antigua a más reciente
         const sortedData = data.data.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-        // Obtener la fecha más reciente
-        const lastDate = new Date(sortedData[sortedData.length - 1].date);
-
-        // Calcular la fecha de inicio (días antes de la última fecha)
-        const startDate = new Date(lastDate);
-        startDate.setDate(startDate.getDate() - (days - 1));
-
-        // Filtrar datos dentro del rango
-        const filteredData = sortedData.filter(item => {
-            const itemDate = new Date(item.date);
-            return itemDate >= startDate && itemDate <= lastDate;
+        // Formatear fechas para mostrar
+        const labels = sortedData.map(d => {
+            const date = new Date(d.date);
+            return date.toLocaleDateString('es-ES', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric'
+            });
         });
 
-        // Si no hay datos en el rango, usar todos los datos disponibles
-        const dataToUse = filteredData.length > 0 ? filteredData : sortedData;
+        const category = document.getElementById('history-category').value;
 
-        // Obtener el rango de fechas
-        const startDateStr = new Date(dataToUse[0].date).toLocaleDateString();
-        const endDateStr = new Date(dataToUse[dataToUse.length - 1].date).toLocaleDateString();
-        const dateRange = `${startDateStr} - ${endDateStr}`;
+        let datasets = [];
+        let yAxisTitle = '';
 
-        // Obtener la categoría seleccionada
-        const category = document.getElementById('historicalCategory').value;
-
-        // Actualizar el título del gráfico con el rango de fechas
-        const chartTitle = `Evolución de ${getCategoryLabel(category)} (${dateRange})`;
-
-        // Configurar el gráfico
-        const ctx = document.getElementById('temp-chart').getContext('2d');
-
-        // Destruir el gráfico existente si existe
-        if (window.historicalChart) {
-            window.historicalChart.destroy();
+        switch (category) {
+            case 'temperature':
+                datasets = [
+                    {
+                        label: 'Temp. Media',
+                        data: sortedData.map(d => d.temp_avg),
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                        fill: false,
+                        tension: 0.1
+                    },
+                    {
+                        label: 'Temp. Máxima',
+                        data: sortedData.map(d => d.temp_max),
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                        fill: false,
+                        tension: 0.1
+                    },
+                    {
+                        label: 'Temp. Mínima',
+                        data: sortedData.map(d => d.temp_min),
+                        borderColor: 'rgba(75, 192, 192, 1)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                        fill: false,
+                        tension: 0.1
+                    }
+                ];
+                yAxisTitle = 'Temperatura (°C)';
+                break;
+            case 'precipitation':
+                datasets = [{
+                    label: 'Precipitación',
+                    data: sortedData.map(d => d.precipitation || 0),
+                    borderColor: 'rgba(0, 123, 255, 1)',
+                    backgroundColor: 'rgba(0, 123, 255, 0.2)',
+                    fill: true,
+                    tension: 0.1
+                }];
+                yAxisTitle = 'Precipitación (mm)';
+                break;
+            case 'wind':
+                datasets = [{
+                    label: 'Velocidad del Viento',
+                    data: sortedData.map(d => d.wind_speed || 0),
+                    borderColor: 'rgba(255, 193, 7, 1)',
+                    backgroundColor: 'rgba(255, 193, 7, 0.2)',
+                    fill: true,
+                    tension: 0.1
+                }];
+                yAxisTitle = 'Velocidad del Viento (m/s)';
+                break;
+            case 'humidity':
+                datasets = [{
+                    label: 'Humedad',
+                    data: sortedData.map(d => d.humidity_avg || 0),
+                    borderColor: 'rgba(23, 162, 184, 1)',
+                    backgroundColor: 'rgba(23, 162, 184, 0.2)',
+                    fill: true,
+                    tension: 0.1
+                }];
+                yAxisTitle = 'Humedad (%)';
+                break;
         }
 
-        // Crear nuevo gráfico
-        window.historicalChart = new Chart(ctx, {
+        const ctx = document.getElementById('temp-chart').getContext('2d');
+
+        // Destruir gráfico anterior si existe
+        if (tempChart) {
+            tempChart.destroy();
+        }
+
+        tempChart = new Chart(ctx, {
             type: 'line',
             data: {
-                labels: dataToUse.map(item => new Date(item.date).toLocaleDateString()),
-                datasets: getChartDatasets(category, dataToUse)
+                labels: labels,
+                datasets: datasets
             },
             options: {
                 responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    title: {
-                        display: true,
-                        text: chartTitle
-                    },
-                    legend: {
-                        display: true,
-                        position: 'top'
-                    }
-                },
+                maintainAspectRatio: true,
                 scales: {
                     y: {
-                        beginAtZero: true
+                        beginAtZero: category === 'precipitation' || category === 'wind',
+                        title: {
+                            display: true,
+                            text: yAxisTitle
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Fecha'
+                        }
+                    }
+                },
+                plugins: {
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false
+                    },
+                    legend: {
+                        position: 'top',
                     }
                 }
             }
         });
-
     } catch (error) {
         console.error('Error cargando datos históricos:', error);
         document.getElementById('temp-chart').parentNode.innerHTML =
-            '<p class="text-center text-danger">Error al cargar los datos históricos. Por favor, intenta nuevamente.</p>';
+            '<p class="text-center text-danger">Error al cargar los datos históricos</p>';
     }
 }
-
-function getCategoryLabel(category) {
-    const labels = {
-        'temp': 'Temperatura',
-        'precipitation': 'Precipitación',
-        'wind': 'Viento',
-        'humidity': 'Humedad'
-    };
-    return labels[category] || category;
-}
-
-function getChartDatasets(category, data) {
-    switch(category) {
-        case 'temp':
-            return [
-                {
-                    label: 'Temperatura Máxima',
-                    data: data.map(item => item.temp_max),
-                    borderColor: 'rgb(255, 99, 132)',
-                    backgroundColor: 'rgba(255, 99, 132, 0.5)',
-                },
-                {
-                    label: 'Temperatura Mínima',
-                    data: data.map(item => item.temp_min),
-                    borderColor: 'rgb(54, 162, 235)',
-                    backgroundColor: 'rgba(54, 162, 235, 0.5)',
-                },
-                {
-                    label: 'Temperatura Media',
-                    data: data.map(item => item.temp_avg),
-                    borderColor: 'rgb(75, 192, 192)',
-                    backgroundColor: 'rgba(75, 192, 192, 0.5)',
-                }
-            ];
-        case 'precipitation':
-            return [{
-                label: 'Precipitación (mm)',
-                data: data.map(item => item.precipitation),
-                borderColor: 'rgb(153, 102, 255)',
-                backgroundColor: 'rgba(153, 102, 255, 0.5)',
-            }];
-        case 'wind':
-            return [{
-                label: 'Velocidad del Viento (m/s)',
-                data: data.map(item => item.wind_speed),
-                borderColor: 'rgb(255, 159, 64)',
-                backgroundColor: 'rgba(255, 159, 64, 0.5)',
-            }];
-        case 'humidity':
-            return [{
-                label: 'Humedad (%)',
-                data: data.map(item => item.humidity_avg),
-                borderColor: 'rgb(201, 203, 207)',
-                backgroundColor: 'rgba(201, 203, 207, 0.5)',
-            }];
-        default:
-            return [];
-    }
-}
-
-// Add event listeners for the new selectors
-document.getElementById('historicalCategory').addEventListener('change', () => {
-    const city = document.getElementById('city-selector').value;
-    const days = document.getElementById('historicalDays').value;
-    loadHistoricalData(city, days);
-});
-
-document.getElementById('historicalDays').addEventListener('change', () => {
-    const city = document.getElementById('city-selector').value;
-    const days = document.getElementById('historicalDays').value;
-    loadHistoricalData(city, days);
-});
 
 // Event listener para cambios en el selector de categoría
 document.getElementById('history-category').addEventListener('change', function() {

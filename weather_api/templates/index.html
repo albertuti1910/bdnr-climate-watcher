@@ -147,29 +147,26 @@
             <div class="col-12">
                 <div class="card">
                     <div class="card-header">
-                        <h5 class="mb-0">Evolución</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="row mb-3">
-                            <div class="col-md-6">
-                                <select id="historicalCategory" class="form-select">
-                                    <option value="temp">Temperatura</option>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h5>Datos Históricos</h5>
+                            <div class="d-flex align-items-center">
+                                <select id="history-category" class="form-select form-select-sm me-2" style="width: auto;">
+                                    <option value="temperature">Temperatura</option>
                                     <option value="precipitation">Precipitación</option>
                                     <option value="wind">Viento</option>
                                     <option value="humidity">Humedad</option>
                                 </select>
-                            </div>
-                            <div class="col-md-6">
-                                <select id="historicalDays" class="form-select">
-                                    <option value="7">Últimos 7 días</option>
-                                    <option value="14">Últimos 14 días</option>
-                                    <option value="30">Últimos 30 días</option>
+                                <span class="me-2">Mostrar:</span>
+                                <select id="history-days" class="form-select form-select-sm" style="width: auto;">
+                                    <option value="7">7 días</option>
+                                    <option value="14">14 días</option>
+                                    <option value="30">30 días</option>
                                 </select>
                             </div>
                         </div>
-                        <div class="chart-container" style="height: 300px;">
-                            <canvas id="historicalChart"></canvas>
-                        </div>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="temp-chart"></canvas>
                     </div>
                 </div>
             </div>
