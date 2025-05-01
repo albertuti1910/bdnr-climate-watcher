@@ -1,15 +1,26 @@
 # BDNR Climate Watcher
 
-A comprehensive weather monitoring system that collects, stores, and analyzes weather data using MongoDB and OpenWeatherMap API. The system features real-time data collection, historical analysis, and a user-friendly dashboard.
+A comprehensive weather monitoring and analysis system that collects, processes, and visualizes weather data for specified locations. The system provides real-time weather monitoring, historical data analysis, and alert notifications through multiple channels.
 
-## Key Features
+## Features
 
-- **Real-time Weather Monitoring**: Collects and displays current weather conditions for multiple cities
-- **Historical Data Analysis**: Tracks and visualizes temperature trends over time
-- **Data Verification System**: Implements a robust verification system that tracks both data collection and verification times
-- **Interactive Dashboard**: Modern web interface for viewing current and historical weather data
-- **Multi-city Support**: Monitor weather conditions across multiple cities simultaneously
-- **Data Integrity**: Ensures data accuracy through verification timestamps and update checks
+- **Real-time Weather Data Collection**: Automatically collects weather data for configured locations
+- **Data Storage**: MongoDB-based storage for weather data
+- **REST API**: Access weather data through a RESTful API
+- **Telegram Bot**: Receive weather alerts and notifications
+- **Data Analysis**: Automated analysis of weather patterns and trends
+- **Alert System**: Configurable thresholds for weather alerts
+- **Docker Support**: Easy deployment using Docker containers
+
+## System Architecture
+
+The system consists of several microservices:
+
+1. **Weather Collector**: Collects weather data from OpenWeatherMap API
+2. **Weather API**: Provides REST endpoints for data access
+3. **Telegram Bot**: Sends notifications and alerts
+4. **Data Analyzer**: Processes and analyzes historical weather data
+5. **MongoDB**: Database for storing weather data
 
 ## Project Structure
 
@@ -18,183 +29,141 @@ bdnr-climate-watcher/
 ├── .env                         # Environment variables (not in git)
 ├── .env.example                 # Example environment variables
 ├── config.py                    # Centralized system configuration
-├── docker-compose.yml           # Main service configuration
+├── docker-compose.yml           # Docker services configuration
+├── requirements.txt             # Main project dependencies
 ├── weather_collector/           # Data collection service
 │   ├── collector_main.py        # Main collection logic
-│   └── requirements.txt
+│   ├── requirements.txt         # Service-specific dependencies
+│   └── Dockerfile              # Container configuration
 ├── weather_api/                 # API and web dashboard
 │   ├── api_main.py             # API endpoints and logic
-│   ├── static/                 # Static files (JS, CSS)
-│   │   └── js/
-│   │       └── main.js         # Frontend logic
-│   └── templates/
-│       └── index.html          # Dashboard template
-└── README.md
+│   ├── requirements.txt        # Service-specific dependencies
+│   ├── Dockerfile             # Container configuration
+│   ├── static/                # Static files (JS, CSS)
+│   │   └── js/               # JavaScript files
+│   └── templates/             # HTML templates
+├── telegram_bot/               # Telegram notification service
+│   ├── telegram_main.py       # Bot logic and handlers
+│   ├── requirements.txt       # Service-specific dependencies
+│   └── Dockerfile            # Container configuration
+├── data_analyzer/             # Data analysis service
+│   ├── analyzer_main.py      # Analysis logic
+│   ├── requirements.txt      # Service-specific dependencies
+│   └── Dockerfile           # Container configuration
+└── README.md                  # Project documentation
 ```
 
-## Core Components
+## Prerequisites
 
-### Weather Collector
-- Periodically fetches weather data from OpenWeatherMap API
-- Stores data in MongoDB with timestamps
-- Implements data verification tracking
-
-### Weather API
-- RESTful API endpoints for weather data
-- Web dashboard for data visualization
-- Data verification and update management
-
-### MongoDB Database
-- Stores weather data with timestamps
-- Tracks data collection and verification times
-- Optimized for weather data queries
+- Docker and Docker Compose
+- OpenWeatherMap API key
+- (Optional) Telegram Bot token
+- (Optional) Email configuration for alerts
 
 ## Installation
 
-### Prerequisites
-- Docker and Docker Compose
-- OpenWeatherMap API key
-- Python 3.8 or higher
-- MongoDB 4.4 or higher
-
-### Setup
-
 1. Clone the repository:
 ```bash
-git clone https://github.com/your-username/bdnr-climate-watcher.git
+git clone [https://github.com/albertuti1910/bdnr-climate-watcher]
 cd bdnr-climate-watcher
 ```
 
-2. Configure environment variables:
+2. Copy the environment file and configure it:
 ```bash
 cp .env.example .env
 ```
-Edit `.env` with your:
-- OpenWeatherMap API key
-- MongoDB credentials
-- System configuration
 
-3. Start the services:
+3. Edit the `.env` file with your configuration:
+- Set your OpenWeatherMap API key
+- Configure MongoDB credentials
+- Set up optional services (Telegram, email alerts)
+
+4. Start the services:
 ```bash
-docker-compose up -d
+docker-compose up -d --build
 ```
-
-## API Endpoints
-
-### Current Weather
-```
-GET /api/current/<city>
-```
-Returns current weather data including:
-- Temperature, humidity, pressure
-- Weather conditions
-- Last verification timestamp
-
-### Historical Data
-```
-GET /api/historical/<city>?days=7
-```
-Returns historical temperature data:
-- Daily average, minimum, and maximum temperatures
-- Data sorted chronologically
-- Configurable time range (7, 14, or 30 days)
-
-### System Statistics
-```
-GET /api/stats
-```
-Returns system-wide statistics:
-- Total number of forecasts
-- Number of monitored cities
-- Last verification timestamp across all cities
-
-## Data Verification System
-
-The system implements a sophisticated data verification system:
-
-1. **Data Collection Time**: When weather data is first collected from OpenWeatherMap
-2. **Last Verification Time**: When the data was last checked/verified
-3. **Update Frequency**: Data is verified if older than 1 hour
-
-This ensures:
-- Accurate tracking of data freshness
-- Clear distinction between collection and verification times
-- Automatic updates when data becomes stale
-
-## Dashboard Features
-
-The web dashboard provides:
-
-1. **Current Weather Display**
-   - Real-time weather conditions
-   - Last verification time for the selected city
-   - Temperature, humidity, and other metrics
-
-2. **Temperature History**
-   - Interactive chart showing temperature trends
-   - Daily average, minimum, and maximum temperatures
-   - Configurable time range selection
-
-3. **System Statistics**
-   - Overview of monitored cities
-   - Last verification time across all data
-   - Total number of forecasts
 
 ## Configuration
 
-### Cities Configuration
-Edit `config.py` to add or remove cities:
-```python
-CITIES = [
-    {"id": 3117735, "name": "Madrid", "country": "ES"},
-    {"id": 3128760, "name": "Barcelona", "country": "ES"},
-    # Add more cities as needed
-]
-```
+The system can be configured through:
 
-### Environment Variables
-Key configuration options in `.env`:
-```
-OPENWEATHER_API_KEY=your_api_key
-MONGODB_URI=mongodb://user:password@mongodb:27017
-VERIFICATION_INTERVAL=3600  # Data verification interval in seconds
-```
+1. **Environment Variables** (`.env` file):
+   - API keys and credentials
+   - Service ports and endpoints
+   - Alert thresholds
+   - Data collection intervals
 
-## Troubleshooting
+2. **Config File** (`config.py`):
+   - Cities to monitor
+   - Weather thresholds
+   - MongoDB configuration
+   - API settings
 
-### Common Issues
+## Services
 
-1. **Data Not Updating**
-   - Check OpenWeatherMap API key
-   - Verify MongoDB connection
-   - Check collector service logs
+### Weather Collector
+- Collects weather data at configurable intervals
+- Stores data in MongoDB
+- Monitors weather conditions against thresholds
 
-2. **Verification Times Not Updating**
-   - Ensure MongoDB is accessible
-   - Check system time synchronization
-   - Verify API endpoint responses
+### Weather API
+- RESTful API for accessing weather data
+- Rate limiting and caching
+- CORS support
+- API key authentication
 
-3. **Dashboard Not Loading**
-   - Check browser console for errors
-   - Verify API connectivity
-   - Check network connectivity
+### Telegram Bot
+- Sends weather alerts and notifications
+- Configurable check intervals
+- Admin user support
 
-### Logs and Monitoring
+### Data Analyzer
+- Processes historical weather data
+- Generates analysis reports
+- Creates weather trend visualizations
 
-View service logs:
-```bash
-docker-compose logs weather_collector
-docker-compose logs weather_api
-```
+## API Documentation
+
+The Weather API provides the following endpoints:
+
+- `GET /api/weather/current`: Current weather data
+- `GET /api/weather/history`: Historical weather data
+- `GET /api/weather/forecast`: Weather forecasts
+- `GET /api/alerts`: Active weather alerts
+
+## Monitoring
+
+The system includes monitoring capabilities:
+- Prometheus metrics endpoint
+- Logging configuration
+- Rate limiting monitoring
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+### Core Contributors
+- Mariana Bordes Bueno
+- Alberto Rivero Monzon
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT License
+
+Copyright (c) 2024 BDNR Climate Watcher
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
