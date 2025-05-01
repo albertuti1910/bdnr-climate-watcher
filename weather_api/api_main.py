@@ -281,8 +281,6 @@ def get_historical_data(city):
         city_query = CityQuery(city=city)
         weather_query = WeatherQuery(days=int(request.args.get('days', 7)))
 
-        logger.info(f"Requested historical data for {city} for the last {weather_query.days} days")
-
         # Parámetros de paginación
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', 100))
@@ -344,16 +342,12 @@ def get_historical_data(city):
         end_date = most_recent_forecast
         start_date = end_date - timedelta(days=weather_query.days)
 
-        logger.info(f"Date range based on forecasts: {start_date} to {end_date}")
-
         # Filter forecasts within the date range
         forecast_list = []
         for forecast in unique_forecasts:
             forecast_dt = datetime.fromtimestamp(forecast["dt"])
             if start_date <= forecast_dt <= end_date:
                 forecast_list.append(forecast)
-
-        logger.info(f"Found {len(forecast_list)} forecasts in the date range")
 
         if not forecast_list:
             logger.warning("No forecasts found in the date range")
@@ -388,8 +382,6 @@ def get_historical_data(city):
         for item in processed:
             grouped[item["date"]].append(item)
 
-        logger.info(f"Grouped into {len(grouped)} unique days")
-
         # Calcular promedios por día
         result = []
         for date, items in grouped.items():
@@ -412,7 +404,6 @@ def get_historical_data(city):
 
         # Ordenar por fecha (ascendente)
         result.sort(key=lambda x: x["date"])
-        logger.info(f"Final result contains {len(result)} days: {[r['date'] for r in result]}")
 
         # Apply pagination
         total = len(result)
@@ -611,8 +602,6 @@ def get_custom_alerts():
         wind = float(request.args.get('wind', 15))
         humidity = float(request.args.get('humidity', 90))
 
-        logger.info(f"Thresholds received - temp_high: {temp_high}, temp_low: {temp_low}, wind: {wind}, humidity: {humidity}")
-
         # Obtener timestamp actual
         current_time = datetime.utcnow()
         current_timestamp = int(current_time.timestamp())
@@ -678,7 +667,6 @@ def get_custom_alerts():
 
         # Ejecutar la consulta y obtener resultados
         alerts = list(db[MONGO_CONFIG['collections']['hourly_forecast']].aggregate(pipeline))
-        logger.info(f"Found {len(alerts)} alerts")
 
         # Convertir ObjectId y datetime a formato serializable
         serialized_alerts = json.loads(json_util.dumps(alerts))
