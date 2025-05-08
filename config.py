@@ -16,7 +16,7 @@ load_dotenv(dotenv_path)
 # Formato: {"name": "NOMBRE_CIUDAD", "lat": LATITUD, "lon": LONGITUD}
 CITIES = [
     {"name": "Las Palmas", "lat": 28.151286, "lon": -15.427340},
-    #{"name": "Santa Cruz de Tenerife", "lat": 28.463163, "lon": -16.251866},
+    {"name": "Santa Cruz de Tenerife", "lat": 28.463163, "lon": -16.251866},
     #{"name": "Madrid", "lat": 40.416775, "lon": -3.703790},
 ]
 

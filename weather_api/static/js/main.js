@@ -923,7 +923,10 @@ function showToast(message, bgClass = 'bg-primary') {
 // Función para buscar ciudades
 async function searchCities() {
     const searchTerm = document.getElementById('city-search').value.trim();
-    if (searchTerm.length < 2) return;
+    if (searchTerm.length < 2) {
+        document.getElementById('search-results').style.display = 'none';
+        return;
+    }
 
     try {
         const response = await fetch(`/api/cities/search?q=${encodeURIComponent(searchTerm)}`);
@@ -932,7 +935,7 @@ async function searchCities() {
         const resultsContainer = document.getElementById('search-results');
 
         if (cities.length === 0) {
-            resultsContainer.innerHTML = '<div class="alert alert-info">No se encontraron ciudades con ese nombre</div>';
+            resultsContainer.innerHTML = '<div class="alert alert-warning">No se encontraron ciudades con ese nombre</div>';
             resultsContainer.style.display = 'block';
             return;
         }
@@ -962,11 +965,15 @@ async function searchCities() {
                     citySelector.value = cityName;
                     citySelector.dispatchEvent(new Event('change'));
                     resultsContainer.style.display = 'none';
+                    document.getElementById('city-search').value = '';
                 }
             });
         });
     } catch (error) {
         console.error('Error buscando ciudades:', error);
+        const resultsContainer = document.getElementById('search-results');
+        resultsContainer.innerHTML = '<div class="alert alert-danger">Error al buscar ciudades</div>';
+        resultsContainer.style.display = 'block';
     }
 }
 
@@ -1081,11 +1088,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Recargar estadísticas cada 10 minutos
     setInterval(loadStats, 10 * 60 * 1000);
 
-    // Funcionalidad de búsqueda
-    document.getElementById('search-button').addEventListener('click', searchCities);
-    document.getElementById('city-search').addEventListener('keypress', function(e) {
-        if (e.key === 'Enter') {
+    // Funcionalidad de búsqueda con autocompletado
+    const citySearch = document.getElementById('city-search');
+    let searchTimeout;
+
+    citySearch.addEventListener('input', function() {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(searchCities, 300); // Debounce de 300ms
+    });
+
+    citySearch.addEventListener('focus', function() {
+        if (this.value.length >= 2) {
             searchCities();
+        }
+    });
+
+    // Cerrar resultados al hacer clic fuera
+    document.addEventListener('click', function(e) {
+        const searchResults = document.getElementById('search-results');
+        const citySearch = document.getElementById('city-search');
+        if (!searchResults.contains(e.target) && e.target !== citySearch) {
+            searchResults.style.display = 'none';
         }
     });
 
