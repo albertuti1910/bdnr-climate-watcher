@@ -353,6 +353,18 @@ async function loadHistoricalData(city, days = 7) {
                                     return [label, 'Hoy'];
                                 }
                                 return label;
+                            },
+                            color: function(context) {
+                                const today = new Date().toLocaleDateString('es-ES', {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    year: 'numeric'
+                                });
+                                const label = context.chart.data.labels[context.index];
+                                if (label === today) {
+                                    return '#dc3545';
+                                }
+                                return Chart.defaults.color;
                             }
                         }
                     }
