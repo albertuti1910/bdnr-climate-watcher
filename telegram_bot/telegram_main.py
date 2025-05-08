@@ -12,6 +12,62 @@ from config import THRESHOLDS, MONGO_CONFIG
 
 load_dotenv()
 
+# Diccionario para traducir descripciones del tiempo
+weather_descriptions = {
+    # Condiciones de cielo
+    'clear sky': 'Cielo despejado',
+    'few clouds': 'Algunas nubes',
+    'scattered clouds': 'Nubes dispersas',
+    'broken clouds': 'Nubosidad parcial',
+    'overcast clouds': 'Cielo cubierto',
+
+    # Lluvia
+    'light rain': 'Lluvia débil',
+    'moderate rain': 'Lluvia moderada',
+    'heavy rain': 'Lluvia fuerte',
+    'light intensity drizzle': 'Llovizna débil',
+    'drizzle': 'Llovizna',
+    'moderate drizzle': 'Llovizna moderada',
+    'heavy intensity drizzle': 'Llovizna fuerte',
+    'light intensity shower rain': 'Chubasco débil',
+    'shower rain': 'Chubasco',
+    'heavy intensity shower rain': 'Chubasco fuerte',
+    'ragged shower rain': 'Chubasco irregular',
+
+    # Nieve
+    'light snow': 'Nevada débil',
+    'snow': 'Nevada',
+    'moderate snow': 'Nevada moderada',
+    'heavy snow': 'Nevada intensa',
+    'light shower snow': 'Chubasco de nieve débil',
+    'shower snow': 'Chubasco de nieve',
+    'heavy shower snow': 'Chubasco de nieve intenso',
+    'sleet': 'Aguanieve',
+    'light shower sleet': 'Chubasco de aguanieve débil',
+    'shower sleet': 'Chubasco de aguanieve',
+    'light rain and snow': 'Lluvia y nieve débil',
+    'rain and snow': 'Lluvia y nieve',
+
+    # Tormentas
+    'thunderstorm': 'Tormenta eléctrica',
+    'thunderstorm with light rain': 'Tormenta con lluvia débil',
+    'thunderstorm with rain': 'Tormenta con lluvia',
+    'thunderstorm with heavy rain': 'Tormenta con lluvia fuerte',
+
+    # Fenómenos de visibilidad reducida
+    'mist': 'Neblina',
+    'fog': 'Niebla',
+    'haze': 'Calima',
+    'smoke': 'Humo',
+    'dust': 'Polvo en suspensión',
+    'sand': 'Arena en suspensión',
+    'ash': 'Ceniza volcánica',
+
+    # Otros fenómenos
+    'squall': 'Turbonada',
+    'tornado': 'Tornado'
+}
+
 # Configuración desde variables de entorno
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_ADMIN_ID = os.getenv('TELEGRAM_ADMIN_ID')
@@ -104,7 +160,14 @@ def load_user_preferences(user_id):
                 'alert_history': [],               # Nueva estructura para almacenar historial de alertas
                 'last_alert_sent': now - timedelta(hours=24),  # Para que reciba alertas pronto
                 'created_at': now,
-                'last_activity': now               # Tracking de actividad
+                'last_activity': now,               # Tracking de actividad
+                'thresholds': {
+                    'temp_high': 35,
+                    'temp_low': 0,
+                    'wind': 15,
+                    'humidity': 90,
+                    'rain': 80
+                }
             }
             # Guardar las preferencias por defecto en la base de datos
             user_prefs_collection.insert_one(pref)
@@ -133,7 +196,14 @@ def load_user_preferences(user_id):
             },
             'alert_interval': CHECK_INTERVAL,
             'alert_history': [],
-            'last_alert_sent': datetime.utcnow() - timedelta(hours=24)
+            'last_alert_sent': datetime.utcnow() - timedelta(hours=24),
+            'thresholds': {
+                'temp_high': 35,
+                'temp_low': 0,
+                'wind': 15,
+                'humidity': 90,
+                'rain': 80
+            }
         }
 
 def save_user_preferences(user_id, preferences):
@@ -220,8 +290,12 @@ async def add_city(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
 
         # Usar paginación para mostrar ciudades
-        keyboard = paginate_keyboard(cities)
-        await update.message.reply_text("Selecciona una ciudad para añadir:", reply_markup=keyboard)
+        keyboard = []
+        for city in cities:
+            keyboard.append([InlineKeyboardButton(city, callback_data=f"select_{city}")])
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text("Selecciona una ciudad para añadir:", reply_markup=reply_markup)
     except Exception as e:
         logger.error(f"Error en comando add_city: {e}")
         metrics['errors'] += 1
@@ -281,6 +355,7 @@ async def configure_alerts(update, context: ContextTypes.DEFAULT_TYPE) -> None:
             'rain': 'Lluvia intensa'
         }
 
+        # Añadir botones para cada tipo de alerta
         for alert_type, enabled in alerts.items():
             status = "✅" if enabled else "❌"
             keyboard.append([
@@ -290,20 +365,25 @@ async def configure_alerts(update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 )
             ])
 
+        # Añadir botón para configurar umbrales
+        keyboard.append([
+            InlineKeyboardButton(
+                "⚙️ Configurar Umbrales",
+                callback_data="thresholds"
+            )
+        ])
+
         reply_markup = InlineKeyboardMarkup(keyboard)
         message_text = "Configura qué tipos de alertas quieres recibir:"
 
         # Verificar si la actualización viene de un mensaje o de un callback
         if update.message:
-            # Si viene de un comando directo
             await update.message.reply_text(message_text, reply_markup=reply_markup)
         elif update.callback_query:
-            # Si viene de un callback de botón
             await update.callback_query.edit_message_text(message_text, reply_markup=reply_markup)
     except Exception as e:
         logger.error(f"Error en comando configure_alerts: {e}")
         metrics['errors'] += 1
-
         if update.message:
             await update.message.reply_text("Ha ocurrido un error. Por favor, intenta nuevamente.")
         elif update.callback_query:
@@ -378,7 +458,7 @@ async def get_weather(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             )
             return
 
-        response = "🌤️ Clima actual:\n\n"
+        response = "🌤️ *Clima Actual*\n\n"
         now_timestamp = int(datetime.utcnow().timestamp())
 
         for city in prefs['cities']:
@@ -393,30 +473,35 @@ async def get_weather(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 forecast_list = sorted(weather[0]['list'], key=lambda x: x['dt'])
 
                 # Buscar la predicción más cercana al momento actual
-                # Primero intentar encontrar la más cercana en el futuro
                 future_forecasts = [f for f in forecast_list if f['dt'] >= now_timestamp]
-
-                if future_forecasts:
-                    # Si hay pronósticos futuros, tomar el más inmediato
-                    forecast = future_forecasts[0]
-                else:
-                    # Si no hay pronósticos futuros, tomar el más reciente del pasado
-                    forecast = max(forecast_list, key=lambda x: x['dt']) if forecast_list else None
+                forecast = future_forecasts[0] if future_forecasts else max(forecast_list, key=lambda x: x['dt'])
 
                 if forecast:
                     temp = forecast['main']['temp']
-                    description = forecast['weather'][0]['description']
+                    feels_like = forecast['main']['feels_like']
+                    description = forecast['weather'][0]['description'].lower()
+                    description = weather_descriptions.get(description, description)
                     humidity = forecast['main']['humidity']
                     wind_speed = forecast['wind']['speed']
+                    wind_deg = forecast['wind']['deg']
                     pressure = forecast['main']['pressure']
+                    clouds = forecast.get('clouds', {}).get('all', 0)
+                    visibility = forecast.get('visibility', 10000) / 1000  # Convert to km
                     forecast_time = datetime.fromtimestamp(forecast['dt']).strftime('%H:%M')
 
+                    # Convert wind direction to cardinal points
+                    wind_directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW']
+                    wind_direction = wind_directions[round(wind_deg / 22.5) % 16]
+
                     response += f"*{city}*\n"
-                    response += f"🌡️ {temp:.1f}°C - {description}\n"
+                    response += f"🌡️ {temp:.1f}°C (Sensación: {feels_like:.1f}°C)\n"
+                    response += f"🌤️ {description}\n"
                     response += f"💧 Humedad: {humidity}%\n"
-                    response += f"🌬️ Viento: {wind_speed} m/s\n"
+                    response += f"🌬️ Viento: {wind_speed} m/s ({wind_direction})\n"
                     response += f"⏲️ Presión: {pressure} hPa\n"
-                    response += f"🕒 Hora: {forecast_time}\n\n"
+                    response += f"☁️ Nubes: {clouds}%\n"
+                    response += f"👁️ Visibilidad: {visibility:.1f} km\n"
+                    #response += f"🕒 Hora: {forecast_time}\n\n"
                 else:
                     response += f"*{city}*: Datos no disponibles\n\n"
             else:
@@ -426,7 +511,7 @@ async def get_weather(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     except Exception as e:
         logger.error(f"Error en comando get_weather: {e}")
         metrics['errors'] += 1
-        await update.message.reply_text("Ha ocurrido un error obteniendo los datos del clima. Por favor, intenta nuevamente.")
+        await update.message.reply_text("Ha ocurrido un error. Por favor, intenta nuevamente.")
 
 async def forecast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Comando para obtener el pronóstico de 5 días para una ciudad"""
@@ -481,138 +566,85 @@ async def send_telegram_message(bot, chat_id, text, parse_mode=None):
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Gestiona los callbacks de los botones inline"""
+    query = update.callback_query
+    await query.answer()
+
     try:
-        query = update.callback_query
-        await query.answer()
+        # Obtener el tipo de callback y el valor
+        callback_data = query.data
+        logger.info(f"Received callback data: {callback_data}")
 
-        user_id = query.from_user.id
-        data = query.data
-
-        # No hacer nada para el callback de inactividad (noop)
-        if data == "noop":
-            return
-
-        # Gestionar paginación
-        if data.startswith("page_"):
-            page = int(data.split("_")[1])
-            # Recuperar la lista original para paginar
-            cities = db[MONGO_CONFIG['collections']['hourly_forecast']].distinct("city.name")
-            keyboard = paginate_keyboard(cities, page)
-            await query.edit_message_text("Selecciona una ciudad para añadir:", reply_markup=keyboard)
-            return
-
-        # Acción para configurar intervalo de alertas
-        if data.startswith("interval_"):
-            try:
-                # Usar float en lugar de int para soportar intervalos como 0.0167 (1 minuto)
-                interval_hours = float(data.split("_")[1])
-                seconds = int(interval_hours * 3600)
-
-                # Cargar preferencias
-                prefs = load_user_preferences(user_id)
-                prefs['alert_interval'] = seconds
-                save_user_preferences(user_id, prefs)
-
-                label = "1 minuto" if round(interval_hours, 4) == round(1 / 60, 4) else f"{int(interval_hours)} {'hora' if interval_hours == 1 else 'horas'}"
-
-                await query.edit_message_text(
-                    f"✅ Intervalo de alertas configurado a {label}.\n"
-                    f"Recibirás alertas cada {label} cuando haya condiciones meteorológicas extremas."
-                )
-            except ValueError:
-                await query.edit_message_text("❌ Intervalo no válido.")
-
-        # Acción para añadir ciudad
-        if data.startswith("select_"):
-            city = data[7:]
-
-            # Cargar preferencias
-            prefs = load_user_preferences(user_id)
-
-            # Añadir la ciudad si no está ya en la lista
-            if city not in prefs['cities']:
-                prefs['cities'].append(city)
-                # Guardar las preferencias actualizadas
-                save_user_preferences(user_id, prefs)
-                await query.edit_message_text(f"✅ {city} añadida a tu lista de monitorización.")
-            else:
-                await query.edit_message_text(f"⚠️ {city} ya está en tu lista de monitorización.")
-            return
-
-        # Acción para eliminar ciudad
-        if data.startswith("remove_"):
-            city = data[7:]
-
-            # Cargar preferencias
-            prefs = load_user_preferences(user_id)
-
-            if city in prefs['cities']:
-                prefs['cities'].remove(city)
-                # Guardar las preferencias actualizadas
-                save_user_preferences(user_id, prefs)
-                await query.edit_message_text(f"❌ {city} eliminada de tu lista de monitorización.")
-            else:
-                await query.edit_message_text("⚠️ Error al eliminar la ciudad.")
-            return
-
-        # Acción para cambiar configuración de alertas
-        if data.startswith("toggle_"):
-            alert_type = data[7:]
-
-            # Cargar preferencias
-            prefs = load_user_preferences(user_id)
-
-            if alert_type in prefs['alerts']:
-                # Cambiar estado
-                prefs['alerts'][alert_type] = not prefs['alerts'][alert_type]
-                # Guardar las preferencias actualizadas
-                save_user_preferences(user_id, prefs)
-
-                # Actualizar mensaje con nueva configuración
-                await configure_alerts(update, context)
-            else:
-                await query.edit_message_text("⚠️ Tipo de alerta desconocido.")
-            return
-
-        # Acción para mostrar pronóstico
-        if data.startswith("forecast_"):
-            city = data[9:]
-
-            # Obtener pronóstico más reciente
-            forecast_data = db[MONGO_CONFIG['collections']['hourly_forecast']].find(
-                {"city.name": city}
-            ).sort("collected_at", -1).limit(1)
-            forecast = list(forecast_data)
-
-            if not forecast:
-                await query.edit_message_text(f"⚠️ Pronóstico no disponible para {city}.")
+        if callback_data.startswith('forecast_'):
+            city = callback_data[9:]  # Remove "forecast_" prefix
+            if not city:
+                await query.edit_message_text("Error: Ciudad no especificada")
                 return
 
-            # Filtrar pronóstico para mostrar solo una predicción por día
-            daily_forecast = {}
+            logger.info(f"Procesando pronóstico para ciudad: {city}")
 
-            for item in forecast[0]['list']:
-                forecast_date = datetime.fromtimestamp(item['dt'])
-                date_str = forecast_date.strftime('%Y-%m-%d')
-                hour = forecast_date.hour
+            # Obtener datos del pronóstico - obtener todos los documentos disponibles
+            weather_data = db[MONGO_CONFIG['collections']['hourly_forecast']].find(
+                {"city.name": city}
+            ).sort("collected_at", -1)  # Removed limit(1)
+            weather = list(weather_data)
 
-                # Priorizar pronósticos cercanos al mediodía
-                if date_str not in daily_forecast or abs(hour - 12) < abs(daily_forecast[date_str]['hour'] - 12):
-                    item['hour'] = hour
-                    daily_forecast[date_str] = item
+            if weather:
+                # Recolectar todos los pronósticos de todos los documentos
+                all_forecasts = []
+                for doc in weather:
+                    if 'list' in doc:
+                        all_forecasts.extend(doc['list'])
 
-            # Ordenar por fecha
-            sorted_forecast = sorted(daily_forecast.values(), key=lambda x: x['dt'])
+                logger.info(f"Total de documentos encontrados: {len(weather)}")
+                logger.info(f"Total de pronósticos encontrados: {len(all_forecasts)}")
 
-            # Generar respuesta
-            response = f"🔮 Pronóstico para *{city}*:\n\n"
+                # Ordenar la lista por timestamp (dt)
+                forecast_list = sorted(all_forecasts, key=lambda x: x['dt'])
+                now_timestamp = int(datetime.utcnow().timestamp())
+                logger.info(f"Timestamp actual: {now_timestamp}")
 
-            for item in sorted_forecast[:5]:  # Limitar a 5 días
-                date = datetime.fromtimestamp(item['dt'])
-                day = date.strftime('%A')  # Nombre del día
+                # Filtrar pronósticos futuros y agrupar por día
+                daily_forecasts = {}
+                for forecast in forecast_list:
+                    forecast_date = datetime.fromtimestamp(forecast['dt'])
+                    date_key = forecast_date.strftime('%Y-%m-%d')
 
-                # Traducir nombres de días al español
-                days_es = {
+                    # Solo incluir pronósticos futuros
+                    if forecast['dt'] < now_timestamp:
+                        logger.debug(f"Omitiendo pronóstico pasado: {forecast_date}")
+                        continue
+
+                    logger.debug(f"Procesando pronóstico para fecha: {date_key}")
+
+                    if date_key not in daily_forecasts:
+                        daily_forecasts[date_key] = {
+                            'temps': [],
+                            'descriptions': [],
+                            'icons': [],
+                            'wind_speeds': [],
+                            'humidity': [],
+                            'rain': [],
+                            'date': forecast_date
+                        }
+
+                    daily_forecasts[date_key]['temps'].append(forecast['main']['temp'])
+                    weather_desc = forecast['weather'][0]['description'].lower()
+                    translated_desc = weather_descriptions.get(weather_desc, weather_desc)
+                    daily_forecasts[date_key]['descriptions'].append(translated_desc)
+                    daily_forecasts[date_key]['icons'].append(forecast['weather'][0]['icon'])
+                    daily_forecasts[date_key]['wind_speeds'].append(forecast['wind']['speed'])
+                    daily_forecasts[date_key]['humidity'].append(forecast['main']['humidity'])
+                    if 'rain' in forecast and '1h' in forecast['rain']:
+                        daily_forecasts[date_key]['rain'].append(forecast['rain']['1h'])
+
+                logger.info(f"Días únicos en el pronóstico: {len(daily_forecasts)}")
+                logger.info(f"Fechas disponibles: {sorted(daily_forecasts.keys())}")
+
+                # Crear mensaje de pronóstico
+                response = f"*Pronóstico para {city}*\n\n"
+
+                # Diccionario para traducir días al español
+                dias = {
                     'Monday': 'Lunes',
                     'Tuesday': 'Martes',
                     'Wednesday': 'Miércoles',
@@ -621,15 +653,316 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     'Saturday': 'Sábado',
                     'Sunday': 'Domingo'
                 }
-                day_es = days_es.get(day, day)
 
-                temp = item['main']['temp']
-                weather = item['weather'][0]['description']
+                # Ordenar los días por fecha
+                sorted_dates = sorted(daily_forecasts.keys())
+                logger.info(f"Días ordenados: {sorted_dates}")
 
-                response += f"*{day_es}*: {temp:.1f}°C, {weather}\n"
+                # Mostrar los próximos 5 días (OpenWeatherMap API proporciona 5 días)
+                for date_key in sorted_dates[:5]:
+                    data = daily_forecasts[date_key]
+                    day_name = data['date'].strftime('%A')
+                    day_name_es = dias.get(day_name, day_name)
+                    min_temp = min(data['temps'])
+                    max_temp = max(data['temps'])
+                    avg_wind = sum(data['wind_speeds']) / len(data['wind_speeds'])
+                    avg_humidity = sum(data['humidity']) / len(data['humidity'])
 
-            await query.edit_message_text(response, parse_mode='Markdown')
-            return
+                    # Calcular probabilidad de lluvia
+                    rain_count = sum(1 for r in data['rain'] if r > 0)
+                    rain_prob = (rain_count / len(data['rain'])) * 100 if data['rain'] else 0
+
+                    # Obtener la descripción más frecuente
+                    main_desc = max(set(data['descriptions']), key=data['descriptions'].count)
+
+                    logger.info(f"Procesando día {day_name_es} ({date_key}):")
+                    logger.info(f"  Temperaturas: {min_temp:.1f}°C - {max_temp:.1f}°C")
+                    logger.info(f"  Descripción: {main_desc}")
+                    logger.info(f"  Humedad: {avg_humidity:.0f}%")
+                    logger.info(f"  Viento: {avg_wind:.1f} m/s")
+                    logger.info(f"  Prob. lluvia: {rain_prob:.0f}%")
+
+                    response += f"*{day_name_es}*\n"
+                    response += f"🌡️ {min_temp:.1f}°C - {max_temp:.1f}°C\n"
+                    response += f"🌤️ {main_desc}\n"
+                    response += f"💧 Humedad: {avg_humidity:.0f}%\n"
+                    response += f"🌬️ Viento: {avg_wind:.1f} m/s\n"
+                    response += f"🌧️ Prob. lluvia: {rain_prob:.0f}%\n\n"
+
+                await query.edit_message_text(response, parse_mode='Markdown')
+            else:
+                logger.warning(f"No se encontraron datos para la ciudad: {city}")
+                await query.edit_message_text(f"No hay datos disponibles para {city}")
+        else:
+            # Parse callback data
+            parts = callback_data.split('_')
+            callback_type = parts[0]
+
+            # Special handling for adjust callbacks
+            if callback_type == 'adjust' and len(parts) >= 3:
+                threshold_type = parts[1]
+                adjustment = int(parts[2])
+                callback_value = f"{threshold_type}_{adjustment}"
+            else:
+                callback_value = '_'.join(parts[1:]) if len(parts) > 1 else None
+
+            logger.info(f"Processing callback - Type: {callback_type}, Value: {callback_value}")
+
+            # Get the chat_id of the user
+            chat_id = update.effective_chat.id
+
+            # Load user preferences
+            user_prefs = load_user_preferences(chat_id)
+
+            if callback_type == 'toggle':
+                # Toggle alert type
+                alert_type = callback_value
+                if alert_type in user_prefs['alerts']:
+                    user_prefs['alerts'][alert_type] = not user_prefs['alerts'][alert_type]
+                    save_user_preferences(chat_id, user_prefs)
+                    # Refresh the alerts configuration menu
+                    await configure_alerts(update, context)
+                else:
+                    await query.edit_message_text("Error: Tipo de alerta no válido")
+            elif callback_type == 'thresholds':
+                # Handle thresholds configuration
+                keyboard = []
+                thresholds = user_prefs['thresholds']
+
+                # Add buttons for each threshold with user-friendly labels
+                threshold_labels = {
+                    'temp_high': '🌡️ Temperatura máxima',
+                    'temp_low': '❄️ Temperatura mínima',
+                    'wind': '🌬️ Velocidad del viento',
+                    'humidity': '💧 Humedad',
+                    'rain': '🌧️ Lluvia'
+                }
+
+                # Add buttons for each threshold
+                for threshold_type, value in thresholds.items():
+                    label = threshold_labels.get(threshold_type, threshold_type)
+                    unit = '°C' if 'temp' in threshold_type else 'm/s' if threshold_type == 'wind' else '%' if threshold_type == 'humidity' else 'mm'
+                    keyboard.append([
+                        InlineKeyboardButton(
+                            f"{label}: {value}{unit}",
+                            callback_data=f"threshold_{threshold_type}"
+                        )
+                    ])
+
+                # Add back button
+                keyboard.append([
+                    InlineKeyboardButton("⬅️ Volver", callback_data="back_to_alerts")
+                ])
+
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                await query.edit_message_text(
+                    "⚙️ *Configuración de Umbrales*\n\n"
+                    "Selecciona un umbral para modificarlo:\n\n"
+                    "• Temperatura máxima: Alerta cuando la temperatura supere este valor\n"
+                    "• Temperatura mínima: Alerta cuando la temperatura baje de este valor\n"
+                    "• Velocidad del viento: Alerta cuando el viento supere esta velocidad\n"
+                    "• Humedad: Alerta cuando la humedad supere este porcentaje\n"
+                    "• Lluvia: Alerta cuando la lluvia supere este valor",
+                    reply_markup=reply_markup,
+                    parse_mode='Markdown'
+                )
+            elif callback_type == 'threshold':
+                # Handle threshold modification
+                threshold_type = callback_value
+                current_value = user_prefs['thresholds'][threshold_type]
+
+                # Create keyboard with increment/decrement buttons
+                keyboard = []
+                row = []
+
+                # Add decrement buttons
+                for value in [-10, -5, -1]:
+                    row.append(InlineKeyboardButton(
+                        f"{value:+d}",
+                        callback_data=f"dec_{threshold_type}_{abs(value)}"
+                    ))
+                keyboard.append(row)
+
+                # Add current value display
+                unit = '°C' if 'temp' in threshold_type else 'm/s' if threshold_type == 'wind' else '%' if threshold_type == 'humidity' else 'mm'
+                keyboard.append([
+                    InlineKeyboardButton(
+                        f"Valor actual: {current_value}{unit}",
+                        callback_data="noop"
+                    )
+                ])
+
+                # Add increment buttons
+                row = []
+                for value in [1, 5, 10]:
+                    row.append(InlineKeyboardButton(
+                        f"+{value}",
+                        callback_data=f"inc_{threshold_type}_{value}"
+                    ))
+                keyboard.append(row)
+
+                # Add back button
+                keyboard.append([
+                    InlineKeyboardButton("⬅️ Volver", callback_data="thresholds")
+                ])
+
+                reply_markup = InlineKeyboardMarkup(keyboard)
+
+                # Get threshold label
+                threshold_labels = {
+                    'temp_high': 'Temperatura máxima',
+                    'temp_low': 'Temperatura mínima',
+                    'wind': 'Velocidad del viento',
+                    'humidity': 'Humedad',
+                    'rain': 'Lluvia'
+                }
+                label = threshold_labels.get(threshold_type, threshold_type)
+
+                await query.edit_message_text(
+                    f"⚙️ *Ajustar {label}*\n\n"
+                    f"Valor actual: {current_value}{unit}\n\n"
+                    "Usa los botones para ajustar el valor:",
+                    reply_markup=reply_markup,
+                    parse_mode='Markdown'
+                )
+            elif callback_type in ['inc', 'dec']:
+                # Handle threshold value adjustment
+                try:
+                    # Split the callback value into threshold type and amount
+                    parts = callback_value.split('_')
+                    if len(parts) < 2:
+                        logger.error(f"Invalid parts length: {len(parts)}, parts: {parts}")
+                        raise ValueError("Invalid adjustment format")
+
+                    # Last part is the amount, everything else is the threshold type
+                    amount = int(parts[-1])
+                    threshold_type = '_'.join(parts[:-1])
+
+                    # Apply the adjustment (negative for decrement)
+                    adjustment = -amount if callback_type == 'dec' else amount
+
+                    logger.info(f"Adjusting {threshold_type} by {adjustment}")
+
+                    # Get current value and apply adjustment
+                    current_value = user_prefs['thresholds'][threshold_type]
+                    new_value = current_value + adjustment
+
+                    # Apply limits based on threshold type
+                    if 'temp' in threshold_type:
+                        new_value = max(-50, min(50, new_value))  # Temperature limits
+                    elif threshold_type == 'wind':
+                        new_value = max(0, min(100, new_value))   # Wind speed limits
+                    elif threshold_type == 'humidity':
+                        new_value = max(0, min(100, new_value))   # Humidity limits
+                    elif threshold_type == 'rain':
+                        new_value = max(0, min(200, new_value))   # Rain limits
+
+                    # Update the threshold
+                    user_prefs['thresholds'][threshold_type] = new_value
+                    save_user_preferences(chat_id, user_prefs)
+
+                    # Show updated value
+                    unit = '°C' if 'temp' in threshold_type else 'm/s' if threshold_type == 'wind' else '%' if threshold_type == 'humidity' else 'mm'
+                    threshold_labels = {
+                        'temp_high': 'Temperatura máxima',
+                        'temp_low': 'Temperatura mínima',
+                        'wind': 'Velocidad del viento',
+                        'humidity': 'Humedad',
+                        'rain': 'Lluvia'
+                    }
+                    label = threshold_labels.get(threshold_type, threshold_type)
+
+                    # Create keyboard with increment/decrement buttons
+                    keyboard = []
+                    row = []
+
+                    # Add decrement buttons
+                    for value in [-10, -5, -1]:
+                        row.append(InlineKeyboardButton(
+                            f"{value:+d}",
+                            callback_data=f"dec_{threshold_type}_{abs(value)}"
+                        ))
+                    keyboard.append(row)
+
+                    # Add current value display
+                    keyboard.append([
+                        InlineKeyboardButton(
+                            f"Valor actual: {new_value}{unit}",
+                            callback_data="noop"
+                        )
+                    ])
+
+                    # Add increment buttons
+                    row = []
+                    for value in [1, 5, 10]:
+                        row.append(InlineKeyboardButton(
+                            f"+{value}",
+                            callback_data=f"inc_{threshold_type}_{value}"
+                        ))
+                    keyboard.append(row)
+
+                    # Add back button
+                    keyboard.append([
+                        InlineKeyboardButton("⬅️ Volver", callback_data="thresholds")
+                    ])
+
+                    reply_markup = InlineKeyboardMarkup(keyboard)
+
+                    await query.edit_message_text(
+                        f"⚙️ *Ajustar {label}*\n\n"
+                        f"Valor actual: {new_value}{unit}\n\n"
+                        "Usa los botones para ajustar el valor:",
+                        reply_markup=reply_markup,
+                        parse_mode='Markdown'
+                    )
+                except (ValueError, IndexError) as e:
+                    logger.error(f"Error adjusting threshold: {e}")
+                    logger.error(f"Callback value: {callback_value}")
+                    await query.edit_message_text(
+                        "Error al ajustar el umbral. Por favor, intenta nuevamente.",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("⬅️ Volver", callback_data="thresholds")
+                        ]])
+                    )
+            elif callback_type == 'back_to_alerts':
+                # Return to alerts configuration
+                await configure_alerts(update, context)
+            elif callback_type == 'select':
+                # Handle city selection
+                city = callback_value
+                if city:
+                    if city not in user_prefs['cities']:
+                        user_prefs['cities'].append(city)
+                        save_user_preferences(chat_id, user_prefs)
+                        await query.edit_message_text(f"Ciudad {city} añadida a tu lista de monitorización.")
+                    else:
+                        await query.edit_message_text(f"La ciudad {city} ya está en tu lista de monitorización.")
+            elif callback_type == 'remove':
+                # Handle city removal
+                city = callback_value
+                if city in user_prefs['cities']:
+                    user_prefs['cities'].remove(city)
+                    save_user_preferences(chat_id, user_prefs)
+                    await query.edit_message_text(f"Ciudad {city} eliminada de tu lista de monitorización.")
+            elif callback_type == 'interval':
+                # Handle interval selection
+                try:
+                    interval = float(callback_value)
+                    user_prefs['alert_interval'] = int(interval * 3600)  # Convert hours to seconds
+                    save_user_preferences(chat_id, user_prefs)
+
+                    # Show confirmation message
+                    if round(interval, 4) == round(1/60, 4):
+                        interval_text = "1 minuto"
+                    else:
+                        interval_text = f"{int(interval)} {'hora' if interval == 1 else 'horas'}"
+
+                    await query.edit_message_text(
+                        f"✅ Intervalo de alertas actualizado a {interval_text}."
+                    )
+                except (ValueError, TypeError) as e:
+                    logger.error(f"Error setting interval: {e}")
+                    await query.edit_message_text("Error al configurar el intervalo.")
 
     except Exception as e:
         logger.error(f"Error en callback de botón: {e}")
@@ -662,162 +995,137 @@ async def check_and_send_alerts(context: ContextTypes.DEFAULT_TYPE = None) -> No
 
         # Procesar los datos del tiempo para obtener la predicción más reciente y cercana al momento actual
         processed_weather = {}
-
-        for city_data in weather_data:
-            if 'list' in city_data and city_data['list']:
-                city_name = city_data['city']['name']
-
-                # Ordenar pronósticos y buscar el más cercano al momento actual
-                forecast_list = sorted(city_data['list'], key=lambda x: x['dt'])
-
-                # Buscar pronósticos futuros
-                future_forecasts = [f for f in forecast_list if f['dt'] >= now_timestamp]
-
-                if future_forecasts:
-                    # Si hay pronósticos futuros, usar el más inmediato
-                    latest_forecast = future_forecasts[0]
-                elif forecast_list:
-                    # Si no hay pronósticos futuros, usar el más reciente del pasado
-                    latest_forecast = max(forecast_list, key=lambda x: x['dt'])
-                else:
-                    # No hay pronósticos disponibles
-                    continue
-
-                processed_weather[city_name] = {
-                    'city': city_name,
-                    'country': city_data['city'].get('country', ''),
-                    'temp': latest_forecast['main']['temp'],
-                    'wind_speed': latest_forecast['wind']['speed'],
-                    'humidity': latest_forecast['main']['humidity'],
-                    'rain': latest_forecast.get('rain', {}).get('3h', 0),
-                    'weather_id': latest_forecast['weather'][0]['id'],
-                    'weather_main': latest_forecast['weather'][0]['main'],
-                    'weather_description': latest_forecast['weather'][0]['description'],
-                    'forecast_time': latest_forecast['dt'],
-                    'collected_at': city_data['collected_at']
-                }
-
-        # Para cada usuario, comprobar si es momento de enviar alertas
-        for user in all_users:
-            user_id = user['user_id']
-            cities = user.get('cities', [])
-            alerts = user.get('alerts', {})
-            alert_interval = user.get('alert_interval', CHECK_INTERVAL)
-            last_alert_sent = user.get('last_alert_sent', now - timedelta(days=1))
-
-            # Verificar si es hora de enviar alertas según el intervalo del usuario
-            time_since_last = (now - last_alert_sent).total_seconds()
-
-            if time_since_last < alert_interval:
-                logger.debug(f"Saltando usuario {user_id}, próxima alerta en {alert_interval - time_since_last} segundos")
+        for doc in weather_data:
+            city_name = doc['city']['name']
+            if 'list' not in doc:
                 continue
 
-            if not cities:
+            # Ordenar pronósticos por timestamp
+            forecasts = sorted(doc['list'], key=lambda x: x['dt'])
+
+            # Filtrar pronósticos futuros
+            future_forecasts = [f for f in forecasts if f['dt'] >= now_timestamp]
+
+            if future_forecasts:
+                # Tomar el pronóstico más cercano
+                processed_weather[city_name] = future_forecasts[0]
+
+        # Procesar alertas para cada usuario
+        for user in all_users:
+            user_id = user['user_id']
+            alerts = user.get('alerts', {})
+            thresholds = user.get('thresholds', {
+                'temp_high': 35,
+                'temp_low': 0,
+                'wind': 15,
+                'humidity': 90,
+                'rain': 80
+            })
+            cities = user.get('cities', [])
+            last_alert = user.get('last_alert_sent', now - timedelta(hours=24))
+            alert_interval = user.get('alert_interval', CHECK_INTERVAL)
+
+            # Verificar si ha pasado suficiente tiempo desde la última alerta
+            if (now - last_alert).total_seconds() < alert_interval:
                 continue
 
             user_alerts = []
 
-            for city_name in cities:
-                if city_name not in processed_weather:
+            # Comprobar condiciones para cada ciudad
+            for city in cities:
+                if city not in processed_weather:
                     continue
 
-                data = processed_weather[city_name]
+                data = processed_weather[city]
+                data['city'] = city
 
-                # Comprobar cada tipo de alerta según preferencias
-                if alerts.get('temp_high', True) and data['temp'] > THRESHOLDS['temp_high']:
+                # Comprobar temperatura alta
+                if alerts.get('temp_high', True) and data['main']['temp'] > thresholds['temp_high']:
                     user_alerts.append({
                         'city': data['city'],
                         'type': 'Temperatura alta',
-                        'value': f"{data['temp']:.1f}°C",
-                        'threshold': THRESHOLDS['temp_high'],
-                        'time': data['forecast_time']
+                        'value': f"{data['main']['temp']:.1f}°C",
+                        'threshold': thresholds['temp_high'],
+                        'time': data['dt']
                     })
 
-                if alerts.get('temp_low', True) and data['temp'] < THRESHOLDS['temp_low']:
+                # Comprobar temperatura baja
+                if alerts.get('temp_low', True) and data['main']['temp'] < thresholds['temp_low']:
                     user_alerts.append({
                         'city': data['city'],
                         'type': 'Temperatura baja',
-                        'value': f"{data['temp']:.1f}°C",
-                        'threshold': THRESHOLDS['temp_low'],
-                        'time': data['forecast_time']
+                        'value': f"{data['main']['temp']:.1f}°C",
+                        'threshold': thresholds['temp_low'],
+                        'time': data['dt']
                     })
 
-                if alerts.get('wind', True) and data['wind_speed'] > THRESHOLDS['wind']:
+                # Comprobar viento
+                if alerts.get('wind', True) and data['wind']['speed'] > thresholds['wind']:
                     user_alerts.append({
                         'city': data['city'],
                         'type': 'Viento fuerte',
-                        'value': f"{data['wind_speed']} m/s",
-                        'threshold': THRESHOLDS['wind'],
-                        'time': data['forecast_time']
+                        'value': f"{data['wind']['speed']} m/s",
+                        'threshold': thresholds['wind'],
+                        'time': data['dt']
                     })
 
-                if alerts.get('humidity', True) and data['humidity'] > THRESHOLDS['humidity']:
+                # Comprobar humedad
+                if alerts.get('humidity', True) and data['main']['humidity'] > thresholds['humidity']:
                     user_alerts.append({
                         'city': data['city'],
                         'type': 'Humedad extrema',
-                        'value': f"{data['humidity']}%",
-                        'threshold': THRESHOLDS['humidity'],
-                        'time': data['forecast_time']
+                        'value': f"{data['main']['humidity']}%",
+                        'threshold': thresholds['humidity'],
+                        'time': data['dt']
                     })
 
-                if alerts.get('rain', True) and data.get('rain', 0) > THRESHOLDS['rain_prob']:
+                # Comprobar lluvia
+                if alerts.get('rain', True) and data.get('rain', {}).get('1h', 0) > thresholds['rain']:
                     user_alerts.append({
                         'city': data['city'],
                         'type': 'Lluvia intensa',
-                        'value': f"{data['rain']} mm",
-                        'threshold': THRESHOLDS['rain_prob'],
-                        'time': data['forecast_time']
+                        'value': f"{data['rain']['1h']} mm",
+                        'threshold': thresholds['rain'],
+                        'time': data['dt']
                     })
 
             # Enviar alertas al usuario si hay alguna
             if user_alerts and context:
+                # Agrupar alertas por ciudad
+                alerts_by_city = {}
+                for alert in user_alerts:
+                    if alert['city'] not in alerts_by_city:
+                        alerts_by_city[alert['city']] = []
+                    alerts_by_city[alert['city']].append(alert)
+
                 message = "⚠️ *ALERTAS METEOROLÓGICAS* ⚠️\n\n"
 
-                for alert in user_alerts:
-                    forecast_time = datetime.fromtimestamp(alert['time']).strftime('%H:%M')
-                    message += f"*{alert['city']}*: {alert['type']} - {alert['value']} (hora: {forecast_time})\n"
+                for city, city_alerts in alerts_by_city.items():
+                    message += f"*{city}*\n"
+                    for alert in city_alerts:
+                        forecast_time = datetime.fromtimestamp(alert['time']).strftime('%H:%M')
+                        message += f"• {alert['type']}: {alert['value']} (umbral: {alert['threshold']})\n"
+                    message += "\n"
 
-                try:
-                    await send_telegram_message(
-                        bot=context.bot,
-                        chat_id=user_id,
-                        text=message,
-                        parse_mode='Markdown'
-                    )
-                    alerts_count += 1
-                    metrics['alerts_sent'] += 1
+                # Añadir información sobre el intervalo de alertas
+                interval_hours = alert_interval / 3600
+                if interval_hours < 1:
+                    interval_text = f"{int(interval_hours * 60)} minutos"
+                else:
+                    interval_text = f"{int(interval_hours)} {'hora' if interval_hours == 1 else 'horas'}"
+                message += f"\n_Próxima alerta en {interval_text}_"
 
-                    # Guardar alerta en el historial
-                    alert_record = {
-                        'timestamp': now,
-                        'alerts': user_alerts,
-                        'message': message
-                    }
-
-                    # Actualizar última vez que se enviaron alertas y guardar historial
+                # Enviar mensaje
+                if await send_telegram_message(context.bot, user_id, message, parse_mode='Markdown'):
+                    # Actualizar última alerta enviada
                     user_prefs_collection.update_one(
                         {"user_id": user_id},
-                        {
-                            "$set": {"last_alert_sent": now},
-                            "$push": {
-                                "alert_history": {
-                                    "$each": [alert_record],
-                                    "$slice": -10  # Mantener solo las 10 alertas más recientes
-                                }
-                            }
-                        }
+                        {"$set": {"last_alert_sent": now}}
                     )
+                    alerts_count += 1
 
-                    logger.info(f"Alerta enviada a usuario {user_id}: {len(user_alerts)} condiciones")
-                except Exception as e:
-                    logger.error(f"Error enviando alerta a usuario {user_id}: {e}")
-                    metrics['errors'] += 1
-
-        logger.info(f"Comprobación de alertas completada. Alertas enviadas: {alerts_count}")
-
-        # Guardar métricas periódicamente
-        if context and alerts_count > 0:
-            save_metrics_to_db()
+        logger.info(f"Enviadas {alerts_count} alertas")
+        metrics['alerts_sent'] += alerts_count
 
     except Exception as e:
         logger.error(f"Error en check_and_send_alerts: {e}")
