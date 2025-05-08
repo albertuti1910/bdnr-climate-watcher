@@ -73,12 +73,12 @@ body.dark-mode .card-header {
 
 body.dark-mode .hourly-item,
 body.dark-mode .forecast-hour {
-    background-color: #343a40;
-    color: #f8f9fa;
+    background-color: #bae1ff;
+    color: #212529;
 }
 
 body.dark-mode .weather-icon {
-    background-color: #343a40;
+    background-color: #bae1ff;
 }
 
 body.dark-mode select,
@@ -468,4 +468,12 @@ body.dark-mode .form-control:-ms-input-placeholder {
 body.dark-mode .form-control::-ms-input-placeholder {
     color: #f8f9fa !important;
     opacity: 0.7;
+}
+
+body.dark-mode .small.fw-bold {
+    color: #212529 !important;
+}
+
+body.dark-mode .small.text-muted {
+    color: #6c757d !important;
 }
