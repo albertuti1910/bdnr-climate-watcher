@@ -1,0 +1,7 @@
+Video (10-12 minutos como máx):
+- Un powerpoint explicando todo (tecnologias usadas, etc)
+- Demo de la app en funcionamiento
+
+Memoria final
+
+Pdf explicando frontend + backend // README del codigo

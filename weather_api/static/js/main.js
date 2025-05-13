@@ -186,8 +186,7 @@ async function loadHourlyForecast(city) {
 
         let hourlyHTML = '';
 
-        // Crear HTML para cada hora
-        data.forecast.forEach((item, index) => {
+        data.forecast.slice(0, 12).forEach((item, index) => {
             const date = new Date(item.datetime);
             const hour = date.getHours().toString().padStart(2, '0') + ':00';
             const dayMonth = date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });

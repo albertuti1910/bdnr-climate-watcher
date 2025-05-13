@@ -260,8 +260,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # Cargar preferencias (se crearán si no existen)
         prefs = load_user_preferences(user_id)
 
+        # Send welcome message
         await update.message.reply_text(
-            f"¡Hola {update.effective_user.first_name}! Soy el bot de alertas meteorológicas.\n\n"
+            f"¡Hola {update.effective_user.first_name}! Soy el bot de alertas meteorológicas TiempoNube.\n\n"
             "Puedo enviarte alertas cuando las condiciones climáticas sean extremas "
             "en las ciudades que elijas monitorizar.\n\n"
             "Usa /addcity para añadir una ciudad a tu lista de monitorización.\n"
@@ -274,7 +275,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as e:
         logger.error(f"Error en comando start: {e}")
         metrics['errors'] += 1
-        await update.message.reply_text("Ha ocurrido un error. Por favor, intenta nuevamente.")
+        try:
+            await update.message.reply_text("Ha ocurrido un error. Por favor, intenta nuevamente.")
+        except Exception as send_error:
+            logger.error(f"Error sending error message: {send_error}")
 
 async def add_city(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Comando para añadir una ciudad a monitorizar"""
