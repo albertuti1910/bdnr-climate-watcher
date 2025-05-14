@@ -13,9 +13,8 @@ dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
 load_dotenv(dotenv_path)
 
 # Lista de ciudades para monitorizar
-# Formato: {"name": "NOMBRE_CIUDAD", "lat": LATITUD, "lon": LONGITUD}
 CITIES = [
-    {"name": "Las Palmas", "lat": 28.151286, "lon": -15.427340},
+    {"name": "Las Palmas de Gran Canaria", "lat": 28.151286, "lon": -15.427340},
     {"name": "Santa Cruz de Tenerife", "lat": 28.463163, "lon": -16.251866},
     #{"name": "Madrid", "lat": 40.416775, "lon": -3.703790},
 ]
@@ -49,7 +48,7 @@ API_CONFIG = {
     'debug': os.getenv('API_DEBUG', 'false').lower() == 'true',
     'host': os.getenv('API_HOST', '0.0.0.0'),
     'rate_limit': os.getenv('API_RATE_LIMIT', '100/minute'),
-    'cache_timeout': int(os.getenv('CACHE_TIMEOUT', '300')),  # 5 minutes default
+    'cache_timeout': int(os.getenv('CACHE_TIMEOUT', '300')),
 }
 
 # API Key de OpenWeatherMap
